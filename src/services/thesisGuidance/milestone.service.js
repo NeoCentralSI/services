@@ -3,8 +3,10 @@ import prisma from "../../config/prisma.js";
 import { ROLES, isSupervisorRole, normalize, isPembimbing1, isPembimbing2 } from "../../constants/roles.js";
 import { sendFcmToUsers } from "../push.service.js";
 import { createNotification } from "../../repositories/notification.repository.js";
-import { THESIS_PHASE, THESIS_STATUS, TA_PHASE, currentPhaseOf, phaseForThesisStatus } from "../../constants/thesisStatus.js";
+import { THESIS_PHASE, THESIS_STATUS, TA_PHASE, currentPhaseOf, phaseForThesisStatus, isThesisOnLeave } from "../../constants/thesisStatus.js";
 import { THESIS_STATUS_LABELS, THESIS_PHASE_LABELS, MILESTONE_STATUS_LABELS } from "../../constants/thesisLabels.js";
+import { isThesisPausedByLeave, ON_LEAVE_LECTURER_REASON } from "../../helpers/thesis-leave.helper.js";
+import { assertStudentThesisActionAllowed } from "../thesisLifecycle.service.js";
 import { getProposalPhaseAccess, PROPOSAL_NOT_ASSIGNED_REASON } from "../../helpers/thesis-phase-access.helper.js";
 
 const milestoneStatusLabel = (status) => MILESTONE_STATUS_LABELS[status] ?? status;
@@ -95,10 +97,11 @@ async function getThesisWithAccess(thesisId, userId, requireOwner = false) {
 
 /**
  * Milestone writes (create, update, progress, review, validation): a thesis in the TA phase,
- * or in the proposal phase once Penetapan Pembimbing is issued. BSS, closed theses and a
+ * or in the proposal phase once Penetapan Pembimbing is issued. A leave, closed theses and a
  * thesis repeating its proposal get a clear 403.
  */
 async function ensureThesisWritable(thesis) {
+  if (await isThesisPausedByLeave(thesis)) throw forbidden(ON_LEAVE_LECTURER_REASON);
   if (thesis?.status === THESIS_STATUS.RESEARCH) return;
   if (thesis?.status === THESIS_STATUS.PROPOSAL) {
     const { open, repeating } = await getProposalPhaseAccess(thesis);
@@ -108,9 +111,6 @@ async function ensureThesisWritable(thesis) {
       throw forbidden(`${REPEAT_PROPOSAL_LOCK_REASON} Milestone terkunci sampai Pembimbing 1 menyetujui proposal revisi (Tugas Akhir > Proposal).`);
     }
     throw forbidden(PROPOSAL_NOT_ASSIGNED_REASON);
-  }
-  if (thesis?.status === THESIS_STATUS.ON_LEAVE) {
-    throw forbidden(`Tugas akhir sedang berstatus "${THESIS_STATUS_LABELS.on_leave}". Milestone tidak dapat diubah.`);
   }
   throw forbidden("Tugas akhir sudah tidak aktif. Milestone tidak dapat diubah.");
 }
@@ -352,6 +352,7 @@ export async function getMilestoneDetail(milestoneId, userId) {
 export async function createMilestone(thesisId, userId, data) {
   const { thesis } = await getThesisWithAccess(thesisId, userId, true);
   await ensureThesisWritable(thesis);
+  await assertStudentThesisActionAllowed(thesis.studentId, { thesis: { id: thesis.id } });
 
   // Get next order index
   const maxOrder = await milestoneRepo.getMaxOrderIndex(thesisId, phaseForThesisStatus(thesis.status));
@@ -447,6 +448,7 @@ export async function createMilestonesFromTemplates(thesisId, userId, templateId
   void topicId;
   const { thesis } = await getThesisWithAccess(thesisId, userId, true);
   await ensureThesisWritable(thesis);
+  await assertStudentThesisActionAllowed(thesis.studentId, { thesis: { id: thesis.id } });
   const phase = phaseForThesisStatus(thesis.status);
 
   // Proposal templates are general; only thesis-phase templates come from the topic.
@@ -524,6 +526,7 @@ export async function updateMilestone(milestoneId, userId, data) {
     throw forbidden("Hanya mahasiswa yang dapat mengubah milestone");
   }
   await ensureMilestoneWritable(milestone, thesis);
+  await assertStudentThesisActionAllowed(thesis.studentId, { thesis: { id: thesis.id } });
 
   // Prevent updating completed/validated milestones
   if (milestone.validatedBy && data.status !== "in_progress") {
@@ -552,6 +555,7 @@ export async function deleteMilestone(milestoneId, userId) {
     throw forbidden("Hanya mahasiswa yang dapat menghapus milestone");
   }
   await ensureMilestoneWritable(milestone, thesis);
+  await assertStudentThesisActionAllowed(thesis.studentId, { thesis: { id: thesis.id } });
 
   // A student may delete only a milestone that is not completed.
   if (milestone.status === "completed" || milestone.validatedBy) {
@@ -577,6 +581,7 @@ export async function updateMilestoneStatus(milestoneId, userId, newStatus, note
     throw forbidden("Hanya mahasiswa yang dapat mengubah status milestone");
   }
   await ensureMilestoneWritable(milestone, thesis);
+  await assertStudentThesisActionAllowed(thesis.studentId, { thesis: { id: thesis.id } });
 
   // Validate status transition
   const currentStatus = milestone.status;
@@ -617,6 +622,7 @@ export async function updateMilestoneProgress(milestoneId, userId, progressPerce
     throw forbidden("Hanya mahasiswa yang dapat mengubah progress milestone");
   }
   await ensureMilestoneWritable(milestone, milestoneThesis);
+  await assertStudentThesisActionAllowed(milestoneThesis.studentId, { thesis: { id: milestoneThesis.id } });
 
   if (milestone.status === "completed") {
     throw createError("Tidak dapat mengubah progress milestone yang sudah selesai");
@@ -697,6 +703,7 @@ export async function submitForReview(milestoneId, userId, studentNotes = null) 
     throw forbidden("Hanya mahasiswa yang dapat mengajukan review milestone");
   }
   await ensureMilestoneWritable(milestone, thesis);
+  await assertStudentThesisActionAllowed(thesis.studentId, { thesis: { id: thesis.id } });
 
   // Review is requested for work in progress or a revised milestone.
   assertMilestoneStatus(milestone, ["in_progress", "revision_needed"], "diajukan untuk review");
@@ -959,6 +966,7 @@ export async function reorderMilestones(thesisId, userId, milestoneOrders) {
     throw forbidden("Hanya mahasiswa yang dapat mengatur ulang urutan milestone");
   }
   await ensureThesisWritable(thesis);
+  await assertStudentThesisActionAllowed(thesis.studentId, { thesis: { id: thesis.id } });
 
   // Validate that all milestone IDs belong to this thesis
   const existingMilestones = await milestoneRepo.findByThesisId(thesisId);
@@ -1154,6 +1162,7 @@ function studentOf(thesis) {
 
 /** Why the readiness flow is closed for this thesis status, or null when it is open. */
 function readinessStatusBlock(thesis, kind) {
+  if (isThesisOnLeave(thesis)) return `Mahasiswa sedang cuti. Persetujuan kesiapan ${READINESS_KINDS[kind].noun} tidak dapat diproses selama cuti.`;
   if (thesis?.status === THESIS_STATUS.RESEARCH) return null;
   return `Persetujuan kesiapan ${READINESS_KINDS[kind].noun} hanya berlaku untuk tugas akhir berstatus "${THESIS_STATUS_LABELS.research}". Status saat ini "${THESIS_STATUS_LABELS[thesis?.status] ?? "-"}".`;
 }
@@ -1352,8 +1361,8 @@ async function approveReadiness(kind, thesisId, userId, notes) {
   if (studentUserId) {
     await notifyUsers([studentUserId], {
       title: isFullyApproved
-        ? `🎉 Kesiapan ${config.title} Disetujui Penuh!`
-        : `✅ Persetujuan ${config.title} dari ${roleLabel}`,
+        ? `Kesiapan ${config.title} Disetujui Penuh!`
+        : `Persetujuan ${config.title} dari ${roleLabel}`,
       message: isFullyApproved
         ? `Selamat! Semua pembimbing telah menyetujui kesiapan ${config.noun} Anda. Anda sekarang dapat mendaftar ${config.noun}.`
         : `${supervisorName} telah menyetujui kesiapan ${config.noun} Anda. Menunggu persetujuan dari pembimbing lainnya.`,
@@ -1404,7 +1413,7 @@ async function revokeReadiness(kind, thesisId, userId, notes) {
   const studentUserId = thesis.student?.user?.id;
   if (studentUserId) {
     await notifyUsers([studentUserId], {
-      title: `⚠️ Persetujuan ${config.title} Dibatalkan`,
+      title: `Persetujuan ${config.title} Dibatalkan`,
       message: `${supervisorName} telah membatalkan persetujuan kesiapan ${config.noun} Anda.${notes ? ` Alasan: ${notes}` : ""}`,
       data: { type: `${kind}_readiness_revoked`, thesisId },
     });
@@ -1466,7 +1475,7 @@ async function requestReadinessApproval(kind, thesisId, userId) {
   const studentName = thesis.student?.user?.fullName || "Mahasiswa";
   if (supervisorUserIds.length > 0) {
     await notifyUsers(supervisorUserIds, {
-      title: `🔔 Permintaan Persetujuan ${config.title}`,
+      title: `Permintaan Persetujuan ${config.title}`,
       message: `${studentName} meminta persetujuan kesiapan ${config.noun}. Syarat sistem sudah terpenuhi.`,
       data: { type: `${kind}_readiness_requested`, thesisId },
     });

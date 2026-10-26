@@ -1,7 +1,7 @@
 import { z } from "zod";
 import { academicYearIdSchema } from "./common.validator.js";
 
-const thesisLifecycleStatusSchema = z.enum(["proposal", "research", "on_leave", "completed", "failed"]);
+const thesisLifecycleStatusSchema = z.enum(["proposal", "research", "completed", "failed"]);
 
 const importCellSchema = z.union([z.string(), z.number(), z.date(), z.null()]).optional();
 

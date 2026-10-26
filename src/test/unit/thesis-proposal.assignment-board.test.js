@@ -58,7 +58,7 @@ function wire({ entries = [], requests = [], p2 = [], currentVersion = 2 }) {
   })));
   db.researchMethodAssessment.findMany.mockResolvedValue([]);
   supervisor2.getSupervisor2KadepQueueService.mockResolvedValue(p2);
-  loads.getLecturerLoads.mockImplementation(async (ids) => new Map(ids.map((id) => [id, { activeCount: 10, softLimit: 8, hardLimit: 10, level: "full" }])));
+  loads.getLecturerLoads.mockImplementation(async (ids) => new Map(ids.map((id) => [id, { activeCount: 10, semesterQuota: 8, totalLimit: 10, level: "full" }])));
 }
 
 describe("getAssignmentBoard", () => {

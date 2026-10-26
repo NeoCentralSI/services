@@ -22,7 +22,12 @@ function safeSegment(value) {
     .slice(0, 80) || "document";
 }
 
-function toPublicData(record) {
+/** Public page of a verification link: `/cek-dokumen/<token>` (the old `/verify/document/` redirects there). */
+export function officialDocumentVerificationUrl(token) {
+  return `${String(ENV.FRONTEND_URL ?? "").replace(/\/$/, "")}/cek-dokumen/${token}`;
+}
+
+function toPublicData(record, replacement = null) {
   return {
     token: record.verificationToken,
     documentKind: record.documentKind,
@@ -36,8 +41,21 @@ function toPublicData(record) {
     version: record.version,
     status: record.status,
     isCurrent: record.status === CURRENT_STATUS,
+    supersededAt: record.supersededAt ?? null,
+    // When a newer version replaced this one: its issue date.
+    replacedByIssuedAt: replacement?.issuedAt ?? null,
     integrityCheckAvailable: Boolean(record.fileHash),
   };
+}
+
+/** The next version of the same document, for a superseded record. */
+async function findReplacement(record) {
+  if (record.status === CURRENT_STATUS) return null;
+  return prisma.officialGeneratedDocument.findFirst({
+    where: { documentKind: record.documentKind, sourceId: record.sourceId, version: { gte: record.version + 1 } },
+    orderBy: { version: "asc" },
+    select: { issuedAt: true, version: true },
+  });
 }
 
 async function readReusableDocument(record) {
@@ -85,13 +103,13 @@ export async function renderAndIssueOfficialHtmlDocument({
   });
   const version = (latest?.version || 0) + 1;
   const verificationToken = crypto.randomBytes(32).toString("hex");
-  const verificationUrl = `${ENV.FRONTEND_URL.replace(/\/$/, "")}/verify/document/${verificationToken}`;
+  const verificationUrl = officialDocumentVerificationUrl(verificationToken);
   const qrDataUrl = await QRCode.toDataURL(verificationUrl, {
     errorCorrectionLevel: "H",
     margin: 1,
     width: 260,
   });
-  const finalHtml = appendOfficialDocumentValidation(html, { qrDataUrl, verificationUrl });
+  const finalHtml = appendOfficialDocumentValidation(html, { qrDataUrl });
   const pdfBuffer = await convertHtmlToPdf(finalHtml);
   const fileHash = sha256(pdfBuffer);
 
@@ -149,30 +167,32 @@ export async function getOfficialDocumentVerification(token) {
     error.statusCode = 404;
     throw error;
   }
-  return toPublicData(record);
+  return toPublicData(record, await findReplacement(record));
 }
 
-export async function checkOfficialDocumentHash(token, fileBuffer) {
-  const record = await prisma.officialGeneratedDocument.findUnique({
-    where: { verificationToken: token },
-  });
-  if (!record) {
-    const error = new Error("Dokumen resmi tidak ditemukan atau token verifikasi tidak valid.");
-    error.statusCode = 404;
-    throw error;
-  }
-  if (!record.fileHash) {
-    const error = new Error("Dokumen ini belum memiliki hash integritas.");
+/** The message shown when an uploaded file matches no official document. */
+export const NO_MATCHING_DOCUMENT_MESSAGE =
+  "Berkas tidak cocok dengan dokumen resmi mana pun. Dokumen mungkin telah diubah atau bukan terbitan NeoCentral.";
+
+/**
+ * Finds the official document whose stored file has the same SHA-256 as the uploaded one. The
+ * upload is only hashed, never stored. A superseded version is still found (and said so).
+ */
+export async function findOfficialDocumentByFile(fileBuffer) {
+  if (!fileBuffer?.length) {
+    const error = new Error("Berkas PDF wajib dilampirkan.");
     error.statusCode = 400;
     throw error;
   }
-
-  const isValid = sha256(fileBuffer) === record.fileHash;
-  return {
-    isValid,
-    status: record.status,
-    message: isValid
-      ? "Integritas dokumen sesuai dengan dokumen resmi NeoCentral."
-      : "Dokumen tidak sesuai dengan versi resmi atau telah mengalami perubahan.",
-  };
+  const record = await prisma.officialGeneratedDocument.findFirst({
+    where: { fileHash: sha256(fileBuffer) },
+    orderBy: { version: "desc" },
+  });
+  if (!record) {
+    const error = new Error(NO_MATCHING_DOCUMENT_MESSAGE);
+    error.statusCode = 404;
+    throw error;
+  }
+  return toPublicData(record, await findReplacement(record));
 }
+

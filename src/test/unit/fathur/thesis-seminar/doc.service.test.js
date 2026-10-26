@@ -32,6 +32,12 @@ const { mockDocRepo, mockCoreRepo, mockPrisma, mockFs, mockAcademicYear } = vi.h
   },
 }));
 
+// The student action shield (TA course of the semester, leave) reads tables this test does not fake.
+vi.mock("../../../../services/thesisLifecycle.service.js", async (importOriginal) => ({
+  ...(await importOriginal()),
+  getStudentThesisActionBlock: vi.fn(async () => ({ blocked: false, code: null, reason: null, takingThesisCourse: true })),
+  assertStudentThesisActionAllowed: vi.fn(async () => ({ blocked: false, code: null, reason: null, takingThesisCourse: true })),
+}));
 vi.mock("../../../../repositories/thesis-seminar/doc.repository.js", () => mockDocRepo);
 vi.mock("../../../../repositories/thesis-seminar/thesis-seminar.repository.js", () => mockCoreRepo);
 vi.mock("../../../../config/prisma.js", () => ({ default: mockPrisma }));

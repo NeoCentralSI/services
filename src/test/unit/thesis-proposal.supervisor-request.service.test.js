@@ -44,7 +44,7 @@ const { repo, prismaMock, flags, loads, notify, createSupervisorAssignments, opY
     loads: {
       getLecturerLoads: vi.fn(),
       getApplicableLimits: vi.fn(),
-      classifyLoad: (count, limits) => (count >= limits.hardLimit ? "full" : count >= limits.softLimit ? "near_limit" : "available"),
+      classifyLoad: (count, limits) => (count >= limits.totalLimit ? "full" : count >= limits.semesterQuota ? "near_limit" : "available"),
     },
     notify: { createNotificationEventForUsers: vi.fn() },
     createSupervisorAssignments: vi.fn(),
@@ -78,8 +78,8 @@ const DRAFT = {
   researchPermitStatus: "in_process",
   studentJustification: null,
 };
-const LIMITS = { softLimit: 8, hardLimit: 10, source: "general" };
-const load = (activeCount) => ({ activeCount, ...LIMITS, level: loads.classifyLoad(activeCount, LIMITS) });
+const LIMITS = { semesterQuota: 8, totalLimit: 10, source: "general" };
+const load = (activeCount) => ({ acceptedCount: 0, activeCount, ...LIMITS, level: loads.classifyLoad(activeCount, LIMITS) });
 
 function request(overrides = {}) {
   return {
@@ -263,6 +263,14 @@ describe("lecturer response", () => {
     await service.respondAsLecturer("req-1", "lec-1", { action: "accept" });
     expect(prismaMock.thesis.create).not.toHaveBeenCalled();
     expect(prismaMock.thesis.update).toHaveBeenCalledWith({ where: { id: "t-old" }, data: expect.objectContaining({ academicYearId: "ay-1" }) });
+  });
+
+  it("forwards acceptance when semester quota is reached despite spare total capacity", async () => {
+    loads.getLecturerLoads.mockResolvedValue(new Map([["lec-1", { ...load(3), acceptedCount: LIMITS.semesterQuota }]]));
+    repo.findRequestById.mockResolvedValue(request({ studentJustification: "Topik melanjutkan proyek riset dosen." }));
+    const result = await service.respondAsLecturer("req-1", "lec-1", { action: "accept", lecturerOverquotaReason: "Bidang riset sesuai dengan kepakaran." });
+    expect(result.status).toBe("pending_kadep");
+    expect(createSupervisorAssignments).not.toHaveBeenCalled();
   });
 
   it("at the hard limit, forwards to the Head of Department with both justifications", async () => {

@@ -31,7 +31,7 @@ describe("findMyStudents", () => {
 
   it("filter Aktif: running theses plus theses that repeat their proposal", async () => {
     await repo.findMyStudents("lec-1", undefined, { filter: "active" });
-    expect(thesisWhere()).toEqual({ OR: [{ status: { in: ["research", "on_leave"] } }, REPEATING] });
+    expect(thesisWhere()).toEqual({ OR: [{ status: { in: ["research"] } }, REPEATING] });
   });
 
   it("filter Semua also includes them", async () => {

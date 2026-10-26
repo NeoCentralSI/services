@@ -1,5 +1,5 @@
 import {
-  checkOfficialDocumentHash,
+  findOfficialDocumentByFile,
   getOfficialDocumentVerification,
 } from "../services/official-document.service.js";
 
@@ -12,16 +12,15 @@ export async function verifyDocument(req, res, next) {
   }
 }
 
-export async function checkDocumentHash(req, res, next) {
+/** POST /official-documents/find-by-file: the official document whose file has the same hash. */
+export async function findDocumentByFile(req, res, next) {
   try {
     if (!req.file) {
-      return res.status(400).json({
-        success: false,
-        message: "File PDF wajib dilampirkan untuk pemeriksaan integritas.",
-      });
+      return res.status(400).json({ success: false, message: "Berkas PDF wajib dilampirkan." });
     }
-    const data = await checkOfficialDocumentHash(req.params.token, req.file.buffer);
-    res.json({ success: true, ...data });
+    // Only the hash is compared; the upload is not stored.
+    const data = await findOfficialDocumentByFile(req.file.buffer);
+    res.json({ success: true, data });
   } catch (error) {
     next(error);
   }

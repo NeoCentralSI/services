@@ -92,12 +92,12 @@ describe("label bahasa Indonesia untuk enum TA", () => {
     expect(THESIS_STATUS_LABELS).toEqual({
       proposal: "Proposal",
       research: "Penelitian",
-      on_leave: "Berhenti Studi Sementara (BSS)",
       completed: "Selesai",
       failed: "Gagal",
     });
     expect(THESIS_PHASE_LABELS).toEqual({ proposal: "Proposal", research: "Penelitian" });
-    expect(getThesisStatusLabel("on_leave")).toBe("Berhenti Studi Sementara (BSS)");
+    // Leave is a student status, shown as the "Cuti" badge beside the thesis status.
+    expect(THESIS_STATUS_LABELS).not.toHaveProperty("on_leave");
   });
 
   it("nilai turunan (aktivitas dan jatuh tempo evaluasi) punya label untuk setiap nilai helper", () => {

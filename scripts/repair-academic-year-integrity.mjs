@@ -63,7 +63,7 @@ async function mergeAcademicYear(duplicate, canonical) {
       "supervisionQuota",
       duplicate.id,
       canonical.id,
-      ["softLimit", "hardLimit"],
+      ["semesterQuota", "totalLimit"],
     );
 
     await assertNoUniqueChildConflict(

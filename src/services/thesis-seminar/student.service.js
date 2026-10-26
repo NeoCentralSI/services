@@ -10,6 +10,7 @@ import { computeEffectiveStatus } from "../../utils/seminarStatus.util.js";
 import { mapScoreToGrade } from "../../utils/score.util.js";
 import { ENV } from "../../config/env.js";
 import prisma from "../../config/prisma.js";
+import { assertStudentThesisActionAllowed, getStudentThesisActionBlock, TAKING_THESIS_COURSE_LABEL, THESIS_ACTION_BLOCK } from "../thesisLifecycle.service.js";
 import { CURRENT_THESIS_STATUSES } from "../../constants/thesisStatus.js";
 
 const MIN_BIMBINGAN = ENV.SEMINAR_MIN_BIMBINGAN;
@@ -102,15 +103,18 @@ export async function getOverview(userId) {
   const seminarAttendance = await coreRepo.countSeminarAttendance(student.id);
   const supervisors = thesis.thesisSupervisors || [];
   const allSupervisorsReady = supervisors.length > 0 && supervisors.every((s) => s.seminarReady);
+  const actionBlock = await getStudentThesisActionBlock(student.id, { thesis: { id: thesis.id }, requireThesisCourse: true });
+  const takingCourseMet = ![THESIS_ACTION_BLOCK.NOT_TAKING_THESIS, THESIS_ACTION_BLOCK.THESIS_COURSE_UNKNOWN].includes(actionBlock.code);
 
   const checklist = {
     bimbingan: { met: completedGuidances >= MIN_BIMBINGAN, current: completedGuidances, required: MIN_BIMBINGAN, label: `${MIN_BIMBINGAN} Bimbingan` },
     kehadiran: { met: seminarAttendance >= MIN_KEHADIRAN, current: seminarAttendance, required: MIN_KEHADIRAN, label: `${MIN_KEHADIRAN} Kehadiran Seminar` },
     metopen: { met: Boolean(student.researchMethodCompleted), label: "Lulus Mata Kuliah Metode Penelitian" },
     pembimbing: { met: allSupervisorsReady, label: "Persetujuan Dosen Pembimbing", supervisors: supervisors.map((s) => ({ name: s.lecturer?.user?.fullName || "-", role: s.role?.name || "-", ready: s.seminarReady })) },
+    mataKuliahTa: { met: takingCourseMet, label: TAKING_THESIS_COURSE_LABEL, reason: takingCourseMet ? null : actionBlock.reason },
   };
 
-  const allChecklistMet = checklist.bimbingan.met && checklist.kehadiran.met && checklist.metopen.met && checklist.pembimbing.met;
+  const allChecklistMet = checklist.bimbingan.met && checklist.kehadiran.met && checklist.metopen.met && checklist.pembimbing.met && checklist.mataKuliahTa.met;
 
   // Isolate the current attempt (latest, if not failed/cancelled)
   let currentSeminar = thesis.thesisSeminars?.[0] || null;

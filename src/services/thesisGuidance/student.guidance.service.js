@@ -32,6 +32,8 @@ import { ForbiddenError } from "../../utils/errors.js";
 import { THESIS_PROGRESS_SELECT, summarizeThesisProgress } from "../../helpers/thesis-progress.helper.js";
 import { isRepeatingProposal } from "../../repositories/thesis-guidance-evaluation.repository.js";
 import { REPEAT_PROPOSAL_LOCK_REASON } from "../../constants/thesis-guidance-evaluation.js";
+import { assertThesisNotOnLeave, ON_LEAVE_STUDENT_REASON } from "../../helpers/thesis-leave.helper.js";
+import { assertStudentThesisActionAllowed, getStudentThesisActionBlock } from "../thesisLifecycle.service.js";
 import { getPhaseSummary, getProposalPhaseAccess, PROPOSAL_NOT_ASSIGNED_REASON } from "../../helpers/thesis-phase-access.helper.js";
 import {
   THESIS_STATUS,
@@ -145,8 +147,6 @@ function ensureStudent(student) {
 
 const NOT_WRITABLE_MESSAGES = {
   [THESIS_STATUS.PROPOSAL]: PROPOSAL_NOT_ASSIGNED_REASON,
-  [THESIS_STATUS.ON_LEAVE]:
-    `Tugas akhir Anda sedang berstatus "${THESIS_STATUS_LABELS.on_leave}". Bimbingan dan milestone tidak dapat diubah.`,
 };
 
 /**
@@ -154,6 +154,7 @@ const NOT_WRITABLE_MESSAGES = {
  * Pembimbing. TA yang dikembalikan ke proposal oleh evaluasi bimbingan tetap terkunci.
  */
 async function ensureThesisWritable(thesis) {
+  await assertThesisNotOnLeave(thesis, ON_LEAVE_STUDENT_REASON);
   if (thesis?.status === THESIS_STATUS.RESEARCH) return;
   const { open, repeating } = await getProposalPhaseAccess(thesis);
   if (open) return;
@@ -331,6 +332,7 @@ export async function requestGuidanceService(
 
   let { student, thesis } = await getActiveThesisOrThrow(userId);
   await ensureThesisWritable(thesis);
+  await assertStudentThesisActionAllowed(thesis.studentId, { thesis: { id: thesis.id } });
   thesis = await ensureThesisAcademicYear(thesis);
   // Phase is set by the server from the thesis status, never by the client.
   const phase = phaseForThesisStatus(thesis.status);
@@ -599,6 +601,7 @@ export async function rescheduleGuidanceService(
     where: { id: guidance.thesisId },
   });
   await ensureThesisWritable(thesis);
+  await assertStudentThesisActionAllowed(thesis.studentId, { thesis: { id: thesis.id } });
 
   // The student may move only a request the lecturer has not answered yet.
   if (guidance.status !== GUIDANCE_STATUS.REQUESTED) {
@@ -1314,70 +1317,6 @@ export async function markSessionCompleteService(
 }
 
 /**
- * Get completed guidance history for documentation
- */
-export async function getCompletedGuidanceHistoryService(userId) {
-  const student = await getStudentByUserId(userId);
-  if (!student) {
-    const err = new Error("Data mahasiswa tidak ditemukan");
-    err.statusCode = 404;
-    throw err;
-  }
-
-  // Completed guidances of the current thesis; a Selesai thesis is still read.
-  const thesis = await getCurrentThesisForStudent(student.id);
-  if (!thesis) {
-    return { guidances: [] };
-  }
-
-  const guidances = await prisma.thesisGuidance.findMany({
-    where: {
-      thesisId: thesis.id,
-      status: "completed",
-    },
-    include: {
-      supervisor: { include: { user: true } },
-      milestones: {
-        include: { milestone: { select: { id: true, title: true } } },
-      },
-      thesis: {
-        select: {
-          title: true,
-          student: {
-            select: {
-              user: { select: { fullName: true, identityNumber: true } },
-            },
-          },
-        },
-      },
-    },
-    orderBy: [{ completedAt: "desc" }, { id: "desc" }],
-  });
-
-  return {
-    guidances: guidances.map((g) => ({
-      id: g.id,
-      phase: g.phase,
-      supervisorName: g.supervisor?.user?.fullName || null,
-      approvedDate: g.approvedDate,
-      approvedDateFormatted: g.approvedDate
-        ? formatDateTimeJakarta(g.approvedDate, { withDay: true })
-        : null,
-      completedAt: g.completedAt,
-      completedAtFormatted: g.completedAt
-        ? formatDateTimeJakarta(g.completedAt, { withDay: true })
-        : null,
-      duration: g.duration,
-      studentNotes: g.studentNotes,
-      sessionSummary: g.sessionSummary,
-      actionItems: g.actionItems,
-      milestoneName: g.milestone?.title || null,
-      thesisTitle: g.thesis?.title || null,
-    })),
-  };
-}
-
-/**
  * Get single guidance detail for export
  */
 export async function getGuidanceForExportService(userId, guidanceId) {
@@ -1589,6 +1528,11 @@ export async function getMyThesisDetailService(userId) {
       lastActivityAt: progress.lastActivityAt,
       daysSinceActivity: progress.daysSinceActivity,
       supervisionClock: progress.supervisionClock,
+      // Why the student may not act now (leave, the TA course of the semester), for the disabled buttons.
+      actionBlock: await (async () => {
+        const block = await getStudentThesisActionBlock(fullThesis.studentId ?? fullThesis.student?.id, { thesis: { id: fullThesis.id } });
+        return { code: block.code, reason: block.reason, takingThesisCourse: block.takingThesisCourse };
+      })(),
       // True while the thesis is back in proposal because of a guidance evaluation.
       repeatingProposal: fullThesis.status === THESIS_STATUS.PROPOSAL ? await isRepeatingProposal(fullThesis.id) : false,
       // Current phase, Penetapan Pembimbing, and per-phase counts for display.

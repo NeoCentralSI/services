@@ -109,7 +109,6 @@ model Student {
   academicYearSnapshots           StudentAcademicYearSnapshot[]
 
   gpa                 Float?
-  graduationPredicate String? @map("graduation_predicate") @db.VarChar(100)
 
   @@index([sksCompleted], map: "idx_students_skscompleted")
   @@map("students")
@@ -747,10 +746,10 @@ model Thesis {
   terminationNote    String?                  @map("termination_note") @db.Text
   terminatedAt       DateTime?                @map("terminated_at")
   terminatedByUserId String?                  @map("terminated_by_user_id")
-  /// Berhenti Studi Sementara (status `on_leave`): status sebelumnya dan tanggal mulai.
-  statusBeforeLeave  ThesisLifecycleStatus?   @map("status_before_leave")
+  /// Awal cuti yang sedang berjalan. Diisi dan dikosongkan hanya bersama perubahan status
+  /// mahasiswa (`students.student_status = bss`), sumber satu-satunya status cuti.
   leaveStartedAt     DateTime?                @map("leave_started_at")
-  /// Jumlah hari cuti (BSS) yang sudah selesai. Ditambah saat TA kembali dari `on_leave`,
+  /// Jumlah hari cuti yang sudah selesai. Ditambah saat mahasiswa kembali aktif,
   /// supaya masa bimbingan (dihitung dari `startDate`) tidak menghitung masa cuti.
   totalLeaveDays     Int                      @default(0) @map("total_leave_days")
   /// Periode saat TA lahir (pengajuan pembimbing diterima).
@@ -2695,7 +2694,7 @@ model ThesisSupervisorRequest {
   kadepNotes              String?                       @map("kadep_notes") @db.Text
   forwardedToKadepAt      DateTime?                     @map("forwarded_to_kadep_at")
   forwardedByLecturerId   String?                       @map("forwarded_by_lecturer_id") @db.VarChar(191)
-  /// Diterima walaupun dosen sudah di atas batas keras (disahkan Ketua Departemen).
+  /// Diterima walaupun dosen sudah di atas batas bimbingan (disahkan Ketua Departemen).
   acceptedOverNormal      Boolean                       @default(false) @map("accepted_over_normal")
   createdAt               DateTime                      @default(now()) @map("created_at")
   updatedAt               DateTime                      @updatedAt @map("updated_at")
@@ -2890,7 +2889,6 @@ enum ThesisPhase {
 enum ThesisLifecycleStatus {
   proposal
   research
-  on_leave
   completed
   failed
 }
@@ -3001,7 +2999,7 @@ enum CplScoreSource {
 }
 
 /// Status Pengajuan Pembimbing.
-/// pending → under_review → accepted (atau pending_kadep bila di atas batas keras);
+/// pending → under_review → accepted (atau pending_kadep bila di atas batas bimbingan);
 /// jalur departemen langsung pending_kadep; Kadep menyetujui (accepted), mengalihkan
 /// (redirected), meminta revisi (revision_requested, diganti pengajuan baru → closed), atau
 /// menolak. accepted/redirected menjadi assigned saat Penetapan Pembimbing.
@@ -3255,14 +3253,13 @@ enum ExitSurveyQuestionType {
 
 // ==================== Supervision Quota ====================
 
-/// Batas bimbingan dosen (10.1). `academic_year_id` kosong = batas umum; terisi = batas
-/// periode yang menimpa batas umum untuk satu semester. Batas lunak hanya peringatan;
-/// melewati batas keras berarti Pengajuan di Atas Kuota yang disahkan Ketua Departemen.
+/// Baris umum menyimpan batas total dan kuota semester bawaan. Baris semester hanya
+/// menyimpan kuota penerimaan Pembimbing 1 semester tersebut. Keduanya tidak memblokir.
 model SupervisionQuota {
   id              String   @id @default(uuid())
   academicYearId  String?  @unique @map("academic_year_id")
-  softLimit       Int      @map("soft_limit")
-  hardLimit       Int      @map("hard_limit")
+  semesterQuota   Int      @default(5) @map("semester_quota")
+  totalLimit      Int?     @map("total_limit")
   updatedByUserId String?  @map("updated_by_user_id")
   createdAt       DateTime @default(now()) @map("created_at")
   updatedAt       DateTime @updatedAt @map("updated_at")

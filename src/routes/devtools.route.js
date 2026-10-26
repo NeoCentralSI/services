@@ -21,6 +21,8 @@ import { setStudentPeriodFlags, ACADEMIC_FLAG_SOURCE } from "../services/researc
 import { formatAcademicYearLabel } from "../helpers/academicYear.helper.js";
 import { GUIDANCE_STATUS } from "../constants/guidanceStatus.js";
 import { AUDIT_ACTIONS, ENTITY_TYPES, logAudit } from "../services/auditLog.service.js";
+import { applyStudentStatusChange, announceStudentStatusChange } from "../services/thesisLifecycle.service.js";
+import finalStagesRouter from "./devtools/final-stages.routes.js";
 
 const router = express.Router();
 
@@ -62,6 +64,9 @@ if (isProduction && !devtoolsExplicitlyEnabled) {
   router.use(authGuard);
   router.use(requireAnyRole([ROLES.ADMIN]));
 }
+
+// Seminar Hasil, Sidang TA and Yudisium (behind the same guard)
+router.use(finalStagesRouter);
 
 /** Select of the SIA flags of the running semester (plan 10.6). */
 const ACTIVE_PERIOD_FLAGS_SELECT = {
@@ -494,7 +499,6 @@ router.patch("/students/:id", async (req, res, next) => {
       "kknCompleted",
       "currentSemester",
       "enrollmentYear",
-      "status",
     ];
     const updateData = {};
     for (const key of allowed) {
@@ -509,8 +513,18 @@ router.patch("/students/:id", async (req, res, next) => {
       }
     }
 
-    if (Object.keys(updateData).length === 0) {
+    const wantsStatus = req.body.status !== undefined && String(req.body.status) !== existing.status;
+    if (Object.keys(updateData).length === 0 && !wantsStatus) {
       throw new BadRequestError("Tidak ada field yang diubah");
+    }
+
+    // The student status drives the thesis (leave, end of studies), like the Admin form.
+    let statusChange = null;
+    if (wantsStatus) {
+      statusChange = await prisma.$transaction((tx) =>
+        applyStudentStatusChange(tx, id, String(req.body.status), { actorUserId: req.user?.sub ?? null, source: "devtools" }),
+      );
+      await announceStudentStatusChange(statusChange);
     }
 
     const updated = await prisma.student.update({

@@ -335,8 +335,9 @@ await run("8 kesiapan seminar dan sidang tanpa unggah", async () => {
 });
 
 await run("9 TA cuti", async () => {
+  // Leave follows the student status: the thesis stays in research and is paused.
   const t = await myThesis("ta_cuti");
-  check("status on_leave, masa bimbingan berhenti, tanpa tingkat aktivitas", t?.status === "on_leave" && t?.supervisionClock?.isPaused === true && t?.activityLevel == null, `${t?.status} paused=${t?.supervisionClock?.isPaused} level=${t?.activityLevel} ${t?.supervisionClock?.elapsedLabel} due=${t?.supervisionClock?.evaluationDue}`);
+  check("mahasiswa cuti: TA tetap research, masa bimbingan berhenti, tanpa tingkat aktivitas", t?.status === "research" && t?.supervisionClock?.isPaused === true && t?.activityLevel == null, `${t?.status} paused=${t?.supervisionClock?.isPaused} level=${t?.activityLevel} ${t?.supervisionClock?.elapsedLabel} due=${t?.supervisionClock?.evaluationDue}`);
   check("tidak ada evaluasi jatuh tempo selama cuti", t?.supervisionClock?.evaluationDue == null, t?.supervisionClock?.evaluationDue);
   const cr = await api("ta_cuti", "POST", "/thesis-change-requests", { requestType: "title", newTitle: "Judul Baru Selama Masa Cuti", reason: R });
   check("pengajuan perubahan ditolak 400", cr.status === 400, cr.json?.message);
@@ -347,8 +348,11 @@ await run("9 TA cuti", async () => {
   check("evaluasi ditolak selama cuti", ev.status >= 400, `${ev.status} ${ev.json?.message}`);
   const sr = await api("ta_cuti", "POST", `/milestones/thesis/${t.id}/seminar-readiness/request`);
   check("minta persetujuan seminar ditolak selama cuti", sr.status >= 400, `${sr.status} ${sr.json?.message}`);
-  const back = await api("admin_si", "PATCH", `/master-data-ta/${t.id}`, { status: "research" });
-  check("Admin mengembalikan ke Penelitian", back.status < 300, `${back.status} ${back.json?.message ?? ""}`);
+  const oldWay = await api("admin_si", "PATCH", `/master-data-ta/${t.id}`, { status: "on_leave" });
+  check("Data TA tidak lagi menerima status cuti", oldWay.status === 400, `${oldWay.status} ${oldWay.json?.message ?? ""}`);
+  const student = await login("ta_cuti");
+  const back = await api("admin_si", "PATCH", `/adminfeatures/students/${student.id}`, { status: "active" });
+  check("Admin mengembalikan status mahasiswa ke Aktif", back.status < 300, `${back.status} ${back.json?.message ?? ""}`);
   const a = await myThesis("ta_cuti");
   check("masa bimbingan tidak menghitung hari cuti", a?.status === "research" && a?.supervisionClock?.isPaused === false && a?.supervisionClock?.elapsedDays < 8 * 31 - 55, `${a?.status} ${a?.supervisionClock?.elapsedLabel} (${a?.supervisionClock?.elapsedDays} hari) level=${a?.activityLevel}`);
 });

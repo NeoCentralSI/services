@@ -5,6 +5,20 @@ import * as docService from "../../../services/thesis-seminar/doc.service.js";
 import * as examinerService from "../../../services/thesis-seminar/examiner.service.js";
 import * as coreService from "../../../services/thesis-seminar/core.service.js";
 import * as revisionService from "../../../services/thesis-seminar/revision.service.js";
+import { resolveOperationalAcademicYear } from "../../../helpers/academicYear.helper.js";
+
+// Student TA actions need the Tugas Akhir course of the semester: the test student takes it.
+const takingCourseStudents = [];
+async function markTakingThesisCourse(studentId) {
+  const year = await resolveOperationalAcademicYear();
+  if (!year || !studentId) return;
+  takingCourseStudents.push(studentId);
+  await prisma.studentAcademicYearSnapshot.upsert({
+    where: { studentId_academicYearId: { studentId, academicYearId: year.id } },
+    update: { takingThesisCourse: true },
+    create: { studentId, academicYearId: year.id, takingThesisCourse: true, thesisCourseSource: "admin", capturedAt: new Date() },
+  });
+}
 
 vi.mock("../../../services/notification.service.js", () => ({
   createNotificationsForUsers: vi.fn().mockResolvedValue({ count: 1 }),
@@ -102,6 +116,7 @@ describe.sequential("Use Scenario Integration — Thesis Seminar (UC-11 s.d. UC-
     thesis = await prisma.thesis.create({
       data: { studentId: student.id, title: `Thesis ${marker}`, status: "research", academicYearId: academicYear.id },
     });
+      await markTakingThesisCourse(thesis.studentId);
     supervisor = await prisma.thesisSupervisors.create({
       data: { thesisId: thesis.id, lecturerId: supervisorLecturer.id, roleId: supervisorRole.id, seminarReady: true },
     });
@@ -131,6 +146,7 @@ describe.sequential("Use Scenario Integration — Thesis Seminar (UC-11 s.d. UC-
   });
 
   afterAll(async () => {
+    await prisma.studentAcademicYearSnapshot.deleteMany({ where: { studentId: { in: takingCourseStudents } } }).catch(() => {});
     for (const filePath of uploadedPaths) await unlink(filePath).catch(() => {});
     if (seminarId) {
       await prisma.thesisSeminarRevision.deleteMany({ where: { seminarExaminer: { thesisSeminarId: seminarId } } }).catch(() => {});

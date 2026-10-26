@@ -73,6 +73,7 @@ const {
   },
 }));
 
+vi.mock("../../../helpers/academicYear.helper.js", () => ({ resolveOperationalAcademicYear: vi.fn(async () => ({ id: "current-semester" })) }));
 vi.mock("../../../repositories/thesisGuidance/supervisor2.repository.js", () => mockSupervisor2Repo);
 vi.mock("../../../repositories/thesisGuidance/student.guidance.repository.js", () => mockStudentRepo);
 vi.mock("../../../repositories/thesis-guidance-evaluation.repository.js", () => mockEvalRepo);
@@ -121,7 +122,7 @@ describe("Pembimbing 2 Service (unit)", () => {
     vi.clearAllMocks();
     // A full lecturer is not blocked; only a lecturer who closed intake is.
     mockQuota.getLecturerLoads.mockImplementation(async (ids) => new Map(
-      ids.map((id) => [id, { activeCount: 1, softLimit: 8, hardLimit: 10, limitSource: "default", level: "available" }]),
+      ids.map((id) => [id, { activeCount: 1, semesterQuota: 8, totalLimit: 10, limitSource: "default", level: "available" }]),
     ));
     mockPrisma.lecturer.findUnique.mockResolvedValue({ acceptingRequests: true });
     mockPrisma.lecturer.findMany.mockResolvedValue([]);
@@ -164,7 +165,7 @@ describe("Pembimbing 2 Service (unit)", () => {
         { id: LECTURER_ID, fullName: "Dr. Andi" },
       ]);
       mockQuota.getLecturerLoads.mockResolvedValue(new Map([
-        [LECTURER_ID, { activeCount: 1, softLimit: 2, hardLimit: 3, limitSource: "general", level: "available" }],
+        [LECTURER_ID, { activeCount: 1, semesterQuota: 2, totalLimit: 3, limitSource: "general", level: "available" }],
       ]));
       mockPrisma.lecturer.findMany.mockResolvedValue([{ id: LECTURER_ID, acceptingRequests: true }]);
 
@@ -173,7 +174,7 @@ describe("Pembimbing 2 Service (unit)", () => {
       expect(list[0].normalAvailable).toBe(2);
       expect(list[0].acceptingRequests).toBe(true);
       expect(Object.keys(list[0]).sort()).toEqual(
-        ["acceptingRequests", "activeCount", "fullName", "id", "normalAvailable", "trafficLight"],
+        ["acceptedCount", "acceptingRequests", "activeCount", "fullName", "id", "normalAvailable", "semesterQuota", "totalLimit", "trafficLight"],
       );
     });
   });
@@ -199,7 +200,7 @@ describe("Pembimbing 2 Service (unit)", () => {
         [LECTURER_ID],
         expect.objectContaining({ title: "Permintaan Pembimbing 2" }),
       );
-      expect(mockQuota.getLecturerLoads).toHaveBeenCalledWith([LECTURER_ID], "ay-1");
+      expect(mockQuota.getLecturerLoads).toHaveBeenCalledWith([LECTURER_ID], "current-semester");
     });
 
     it("mengizinkan request saat fase proposal", async () => {
@@ -240,7 +241,7 @@ describe("Pembimbing 2 Service (unit)", () => {
       mockPrisma.user.findUnique.mockResolvedValue({ fullName: "Budi" });
       mockSupervisor2Repo.createSupervisor2Request.mockResolvedValue({ id: "req-new" });
       mockQuota.getLecturerLoads.mockResolvedValue(new Map([
-        [LECTURER_ID, { activeCount: 12, softLimit: 8, hardLimit: 10, limitSource: "default", level: "full" }],
+        [LECTURER_ID, { activeCount: 12, semesterQuota: 8, totalLimit: 10, limitSource: "default", level: "full" }],
       ]));
 
       const allowed = await requestSupervisor2Service(STUDENT_USER_ID, { lecturerId: LECTURER_ID });
@@ -336,7 +337,7 @@ describe("Pembimbing 2 Service (unit)", () => {
         mockPrisma,
       );
       // re-check kuota di titik kesediaan dosen (F2-3)
-      expect(mockQuota.getLecturerLoads).toHaveBeenCalledWith([LECTURER_ID], "ay-1");
+      expect(mockQuota.getLecturerLoads).toHaveBeenCalledWith([LECTURER_ID], "current-semester");
     });
 
     it("menolak (400) bila dosen menutup penerimaan saat bersedia (F2-3)", async () => {
@@ -430,7 +431,7 @@ describe("Pembimbing 2 Service (unit)", () => {
       );
       expect(mockPrisma.thesis.update).not.toHaveBeenCalled();
       // re-check kuota di titik keputusan KaDep (F2-3)
-      expect(mockQuota.getLecturerLoads).toHaveBeenCalledWith([LECTURER_ID], "ay-1");
+      expect(mockQuota.getLecturerLoads).toHaveBeenCalledWith([LECTURER_ID], "current-semester");
     });
 
     it("approve menolak (400) bila thesis sudah ditutup (F2-2)", async () => {

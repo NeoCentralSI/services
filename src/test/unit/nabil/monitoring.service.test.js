@@ -501,7 +501,7 @@ describe("Module 11: Monitoring Tugas Akhir", () => {
       expect(result).toMatchObject({ success: true, warningType: "slow" });
       const [recipients, push] = mockPush.sendFcmToUsers.mock.calls[0];
       expect(recipients).toEqual(["user-thesis-1"]);
-      expect(push.title).toBe("⚠️ Peringatan Progress Tugas Akhir");
+      expect(push.title).toBe("Peringatan Progress Tugas Akhir");
       expect(push.body).toContain("terdeteksi lambat");
       expect(push.data.warningType).toBe("slow");
       expect(mockNotif.createNotificationsForUsers.mock.calls[0][1].message).toContain("terdeteksi lambat");
@@ -515,7 +515,7 @@ describe("Module 11: Monitoring Tugas Akhir", () => {
 
       expect(result.warningType).toBe("at_risk");
       const push = mockPush.sendFcmToUsers.mock.calls[0][1];
-      expect(push.title).toBe("🚨 Peringatan Serius: Progress Tugas Akhir");
+      expect(push.title).toBe("Peringatan Serius: Progress Tugas Akhir");
       expect(push.body).toContain("Berisiko");
       expect(push.data.warningType).toBe("at_risk");
     });
@@ -628,15 +628,15 @@ describe("Module 11: Monitoring Tugas Akhir", () => {
       expect(mockNotif.createNotificationsForUsers).toHaveBeenCalledTimes(2);
 
       expect(pushFor("u-slow")).toMatchObject({
-        title: "⚠️ Peringatan: Progress Tugas Akhir",
+        title: "Peringatan: Progress Tugas Akhir",
         body: "Halo BUDI SANTOSO, Anda sudah tidak ada update progress tugas akhir selama 90 hari. Segera lakukan bimbingan dengan dosen pembimbing Anda.",
         data: { thesisId: "t-slow", warningType: "slow" },
       });
-      expect(notifFor("u-slow")).toMatchObject({ title: "⚠️ Peringatan: Progress Tugas Akhir", referenceId: "t-slow" });
+      expect(notifFor("u-slow")).toMatchObject({ title: "Peringatan: Progress Tugas Akhir", referenceId: "t-slow" });
       expect(notifFor("u-slow").message).not.toContain("Berisiko");
 
       expect(pushFor("u-risk")).toMatchObject({
-        title: "🚨 Peringatan Serius: Progress Tugas Akhir",
+        title: "Peringatan Serius: Progress Tugas Akhir",
         body: "Halo ANDI WIJAYA, Anda sudah tidak ada update progress tugas akhir selama 200 hari (aktivitas: Berisiko). Segera lakukan bimbingan dengan dosen pembimbing Anda.",
         data: { thesisId: "t-risk", warningType: "at_risk" },
       });
@@ -667,7 +667,7 @@ describe("Module 11: Monitoring Tugas Akhir", () => {
       const result = await sendBatchWarningNotificationService("admin-user", ["t-slow"], "at_risk");
 
       expect(result.sent).toEqual([{ thesisId: "t-slow", studentName: "MAHASISWA T-SLOW", warningType: "slow" }]);
-      expect(mockPush.sendFcmToUsers.mock.calls[0][1].title).toBe("⚠️ Peringatan: Progress Tugas Akhir");
+      expect(mockPush.sendFcmToUsers.mock.calls[0][1].title).toBe("Peringatan: Progress Tugas Akhir");
     });
 
     it("skips theses that are not in Penelitian, unknown ids and theses without a student account", async () => {

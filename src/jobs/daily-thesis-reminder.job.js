@@ -1,6 +1,6 @@
 import prisma from "../config/prisma.js";
 import { sendFcmToUsers } from "../services/push.service.js";
-import { OPEN_THESIS_STATUSES } from "../constants/thesisStatus.js";
+import { OPEN_THESIS_STATUSES, STUDENT_STATUS } from "../constants/thesisStatus.js";
 
 /**
  * Job untuk mengirim daily reminder ke semua mahasiswa yang sedang mengerjakan tugas akhir.
@@ -18,8 +18,9 @@ export async function runDailyThesisReminderJob() {
     // Excluded statuses: thesis that are completed/graduated
     const activeTheses = await prisma.thesis.findMany({
       where: {
-        // Active thesis - not finished, not failed
+        // Active thesis - not finished, not failed, not paused by a leave
         status: { in: OPEN_THESIS_STATUSES },
+        student: { status: { not: STUDENT_STATUS.ON_LEAVE } },
       },
       include: {
         student: {
@@ -81,9 +82,9 @@ export async function runDailyThesisReminderJob() {
           daysSinceLastActivity = Math.floor((today.getTime() - lastDate.getTime()) / (1000 * 60 * 60 * 24));
           
           if (daysSinceLastActivity > 14) {
-            activityMessage = `⚠️ Sudah ${daysSinceLastActivity} hari sejak aktivitas bimbingan terakhir.`;
+            activityMessage = `Sudah ${daysSinceLastActivity} hari sejak aktivitas bimbingan terakhir.`;
           } else if (daysSinceLastActivity > 7) {
-            activityMessage = `📝 ${daysSinceLastActivity} hari sejak bimbingan terakhir.`;
+            activityMessage = `${daysSinceLastActivity} hari sejak bimbingan terakhir.`;
           }
         }
 
@@ -117,7 +118,7 @@ export async function runDailyThesisReminderJob() {
 
         // Send FCM notification to student
         await sendFcmToUsers([studentUserId], {
-          title: "🎓 Reminder Tugas Akhir",
+          title: "Pengingat Tugas Akhir",
           body: notificationBody,
           data: {
             type: "daily_thesis_reminder",
@@ -138,7 +139,7 @@ export async function runDailyThesisReminderJob() {
     const finished = new Date();
     const duration = finished.getTime() - started.getTime();
     console.log(
-      `✅ [daily-thesis-reminder] Job finished at ${finished.toISOString()} ` +
+      `[daily-thesis-reminder] Job finished at ${finished.toISOString()} ` +
       `— sent: ${sentCount}, failed: ${failedCount}, duration: ${duration}ms`
     );
 

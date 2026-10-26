@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { writeFile, mkdir } from "fs/promises";
 import { join } from "path";
-import { PDFDocument, StandardFonts } from "pdf-lib";
+import { PDFDocument, StandardFonts, PDFName, PDFRawStream, decodePDFRawStream } from "pdf-lib";
 import {
   assertStrictSectionOrder,
   generateSupervisorAssignmentPdf,
@@ -167,5 +167,30 @@ describe("generateSupervisorAssignmentPdf", () => {
     const doc = await PDFDocument.create();
     await doc.embedFont(StandardFonts.TimesRoman);
     expect(true).toBe(true);
+  });
+});
+
+function pageContent(doc, page) {
+  const contents = page.node.Contents();
+  if (!contents) return "";
+  const streams = contents.asArray ? contents.asArray().map((ref) => doc.context.lookup(ref)) : [contents];
+  return streams.filter((stream) => stream instanceof PDFRawStream).map((stream) => Buffer.from(decodePDFRawStream(stream).decode()).toString()).join("\n");
+}
+
+describe("preview and issued assignment markings", () => {
+  it("marks every preview page and leaves the signature unpublished", async () => {
+    const doc = await PDFDocument.load(await generateSample(27, { preview: true }));
+    const watermark = Buffer.from("PRATINJAU ").toString("hex").toUpperCase();
+    const pages = doc.getPages().map((page) => pageContent(doc, page));
+    expect(pages.every((content) => content.includes(watermark))).toBe(true);
+    expect(pages.some((content) => content.includes(Buffer.from("(belum diterbitkan)").toString("hex").toUpperCase()))).toBe(true);
+  });
+  it("places the existing university logo on the issued signature page without preview markings", async () => {
+    const doc = await PDFDocument.load(await generateSample(12));
+    const pages = doc.getPages();
+    const signature = pages.find((page) => pageContent(doc, page).includes(Buffer.from("C. Pengesahan").toString("hex").toUpperCase()));
+    const objects = signature.node.Resources().lookup(PDFName.of("XObject"));
+    expect(objects.entries().some(([, ref]) => doc.context.lookup(ref).dict.get(PDFName.of("Subtype"))?.toString() === "/Image")).toBe(true);
+    expect(pages.some((page) => pageContent(doc, page).includes(Buffer.from("PRATINJAU").toString("hex").toUpperCase()))).toBe(false);
   });
 });

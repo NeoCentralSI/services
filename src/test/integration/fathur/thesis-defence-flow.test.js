@@ -5,6 +5,20 @@ import * as examinerService from "../../../services/thesis-defence/examiner.serv
 import * as coreService from "../../../services/thesis-defence/core.service.js";
 import * as revisionService from "../../../services/thesis-defence/revision.service.js";
 import * as docRepo from "../../../repositories/thesis-defence/doc.repository.js";
+import { resolveOperationalAcademicYear } from "../../../helpers/academicYear.helper.js";
+
+// Student TA actions need the Tugas Akhir course of the semester: the test student takes it.
+const takingCourseStudents = [];
+async function markTakingThesisCourse(studentId) {
+  const year = await resolveOperationalAcademicYear();
+  if (!year || !studentId) return;
+  takingCourseStudents.push(studentId);
+  await prisma.studentAcademicYearSnapshot.upsert({
+    where: { studentId_academicYearId: { studentId, academicYearId: year.id } },
+    update: { takingThesisCourse: true },
+    create: { studentId, academicYearId: year.id, takingThesisCourse: true, thesisCourseSource: "admin", capturedAt: new Date() },
+  });
+}
 
 vi.mock("../../../services/notification.service.js", () => ({
   createNotificationsForUsers: vi.fn().mockResolvedValue({ count: 1 }),
@@ -48,6 +62,7 @@ describe("Integration: Thesis Defence Flow (Registration to Finalization)", () =
       if (!role) throw new Error(`Seeds missing: role=${!!role}`);
 
       thesis = await prisma.thesis.create({ data: { studentId: student.id, title: "Defence Int Test", status: "research" } });
+      await markTakingThesisCourse(thesis.studentId);
       supervisor = await prisma.thesisSupervisors.create({ data: { thesisId: thesis.id, lecturerId: lecturer.id, roleId: role.id, seminarReady: true, defenceReady: true } });
       console.log("Thesis created:", thesis.id);
 
@@ -92,6 +107,7 @@ describe("Integration: Thesis Defence Flow (Registration to Finalization)", () =
   });
 
   afterAll(async () => {
+    await prisma.studentAcademicYearSnapshot.deleteMany({ where: { studentId: { in: takingCourseStudents } } }).catch(() => {});
     try {
       console.log("Starting Cleanup...");
       if (defenceId) {

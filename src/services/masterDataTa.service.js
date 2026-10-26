@@ -1,7 +1,7 @@
 import prisma from "../config/prisma.js";
 import * as masterDataTaRepository from "../repositories/masterDataTa.repository.js";
-import { THESIS_STATUS, OPEN_THESIS_STATUSES } from "../constants/thesisStatus.js";
-import { THESIS_STATUS_LABELS } from "../constants/thesisLabels.js";
+import { THESIS_STATUS, OPEN_THESIS_STATUSES, STUDENT_STATUS, isThesisOnLeave } from "../constants/thesisStatus.js";
+import { THESIS_STATUS_LABELS, STUDENT_STATUS_LABELS } from "../constants/thesisLabels.js";
 import {
     CREATABLE_THESIS_STATUSES,
     assertSingleOpenThesis,
@@ -27,13 +27,21 @@ const LEGACY_STATUS_NAMES = {
     "bimbingan": THESIS_STATUS.RESEARCH,
     "aktif": THESIS_STATUS.RESEARCH,
     "tugas akhir": THESIS_STATUS.RESEARCH,
-    "bss": THESIS_STATUS.ON_LEAVE,
     "selesai": THESIS_STATUS.COMPLETED,
     "lulus": THESIS_STATUS.COMPLETED,
     "gagal": THESIS_STATUS.FAILED,
     "dibatalkan": THESIS_STATUS.FAILED,
     "drop out": THESIS_STATUS.FAILED,
 };
+
+/** "Ganjil 2026/2027" or "2026/2027 - Ganjil" -> its year and semester parts. */
+export function splitAcademicYearCell(value) {
+    const text = String(value ?? "").trim();
+    const labelled = /^(ganjil|genap)\s+(\S+)$/i.exec(text);
+    if (labelled) return { yearPart: labelled[2], semesterPart: labelled[1] };
+    const [yearPart, semesterPart] = text.split(" - ").map((part) => part.trim());
+    return { yearPart, semesterPart };
+}
 
 /** Parse a spreadsheet "Status" cell into a ThesisLifecycleStatus (null when unknown/empty).
  * Accepts the enum value, its Indonesian label (§2.2b), or a legacy status name. */
@@ -80,8 +88,11 @@ export const getAllThesesMasterData = async () => {
             student: {
                 id: thesis.student?.id,
                 nim: thesis.student?.user?.identityNumber,
-                name: thesis.student?.user?.fullName
+                name: thesis.student?.user?.fullName,
+                status: thesis.student?.status ?? null,
             },
+            // The student is on leave: the thesis is paused ("Cuti" badge).
+            isOnLeave: isThesisOnLeave(thesis),
             topic: thesis.thesisTopic ? {
                 id: thesis.thesisTopic.id,
                 name: thesis.thesisTopic.name
@@ -93,8 +104,6 @@ export const getAllThesesMasterData = async () => {
                 roleName: ts.role?.name
             })),
             status: thesis.status,
-            // The form offers only allowed transitions (on_leave returns to statusBeforeLeave)
-            statusBeforeLeave: thesis.statusBeforeLeave ?? null,
             terminationReason: thesis.terminationReason ?? null,
             terminationNote: thesis.terminationNote ?? null,
             academicYear: thesis.academicYear ? {
@@ -150,8 +159,16 @@ export const createThesisMasterData = async (data, { actorUserId = null, client 
     const startDate = data.startDate ? new Date(data.startDate) : new Date();
 
     const run = async (tx) => {
-        if (OPEN_THESIS_STATUSES.includes(status)) {
+        const open = OPEN_THESIS_STATUSES.includes(status);
+        const student = await tx.student.findUnique({ where: { id: data.studentId }, select: { status: true } });
+        if (open) {
             await assertSingleOpenThesis(tx, data.studentId);
+            // A student who left their studies cannot start a thesis.
+            if (student && [STUDENT_STATUS.WITHDRAWN, STUDENT_STATUS.DROPPED_OUT].includes(student.status)) {
+                throw new ValidationError(
+                    `Mahasiswa berstatus "${STUDENT_STATUS_LABELS[student.status]}" tidak dapat memiliki tugas akhir yang berjalan.`
+                );
+            }
         }
         await assertTopicExists(tx, data.thesisTopicId);
         const supervisors = await buildSupervisors(tx, data, { requireP1: true });
@@ -171,6 +188,8 @@ export const createThesisMasterData = async (data, { actorUserId = null, client 
                 academicYearId: activeYear.id,
                 startDate,
                 ...statusData,
+                // A thesis of a student on leave starts paused.
+                ...(open && student?.status === STUDENT_STATUS.ON_LEAVE ? { leaveStartedAt: now } : {}),
             },
         });
 
@@ -194,8 +213,8 @@ export const createThesisMasterData = async (data, { actorUserId = null, client 
 };
 
 /**
- * Update: status follows the allowed transitions (failed / on_leave rules in
- * thesisLifecycle.service), topic and supervisors can be set, replaced supervisors become
+ * Update: status follows the allowed transitions (thesisLifecycle.service; leave follows the
+ * student status, not this form), topic and supervisors can be set, replaced supervisors become
  * "released". `startDate` stays editable: it is where the supervision clock starts.
  */
 export const updateThesisMasterData = async (id, data, { actorUserId = null, client = prisma } = {}) => {
@@ -223,9 +242,37 @@ export const updateThesisMasterData = async (id, data, { actorUserId = null, cli
             thesis = await tx.thesis.update({ where: { id }, data: fields });
         }
 
+        const supervisorsBefore = wantsSupervisorChange && !closed ? await activeSupervisorIds(tx, id) : null;
         if (wantsSupervisorChange && !closed) {
             const supervisors = await buildSupervisors(tx, data, { requireP1: true });
             await replaceSupervisorAssignments(tx, id, supervisors, { requireP1: true });
+        }
+
+        // Title, topic, period, start date and supervisors in the activity log.
+        const oldValues = {};
+        const newValues = {};
+        for (const key of Object.keys(fields)) {
+            const before = existing[key] instanceof Date ? existing[key].toISOString() : existing[key] ?? null;
+            const after = fields[key] instanceof Date ? fields[key].toISOString() : fields[key] ?? null;
+            if (before !== after) { oldValues[key] = before; newValues[key] = after; }
+        }
+        if (supervisorsBefore) {
+            const supervisorsAfter = await activeSupervisorIds(tx, id);
+            if (JSON.stringify(supervisorsBefore) !== JSON.stringify(supervisorsAfter)) {
+                oldValues.supervisors = supervisorsBefore;
+                newValues.supervisors = supervisorsAfter;
+            }
+        }
+        if (Object.keys(newValues).length > 0) {
+            await tx.auditLog.create({
+                data: {
+                    userId: actorUserId,
+                    action: AUDIT_ACTIONS.THESIS_UPDATED,
+                    entity: ENTITY_TYPES.THESIS,
+                    entityId: id,
+                    changes: { oldValues, newValues, metadata: { source: "master-data-ta" } },
+                },
+            });
         }
 
         if (data.status && data.status !== existing.status) {
@@ -240,6 +287,15 @@ export const updateThesisMasterData = async (id, data, { actorUserId = null, cli
     };
     return client === prisma ? prisma.$transaction(run) : run(client);
 };
+
+/** Active supervisors of a thesis as readable "Pembimbing 1: Name" entries, in role order. */
+async function activeSupervisorIds(tx, thesisId) {
+    const rows = await tx.thesisSupervisors.findMany({
+        where: { thesisId, status: "active" },
+        select: { role: { select: { name: true } }, lecturer: { select: { user: { select: { fullName: true } } } } },
+    });
+    return rows.map((r) => `${r.role?.name ?? "-"}: ${r.lecturer?.user?.fullName ?? "-"}`).sort();
+}
 
 /** Lecturer by full name (exact, case-insensitive), else a unique partial match. */
 async function findLecturerByName(name) {
@@ -290,10 +346,10 @@ export const importThesesMasterData = async (rows, { actorUserId = null } = {}) 
                 orderBy: [{ createdAt: "desc" }, { id: "desc" }],
             });
 
-            // Academic Year lookup from "2024 - Ganjil" or "2024/2025 - Ganjil" format
+            // Academic Year: "Ganjil 2026/2027" (the export), or the older "2024 - Ganjil" / "2024/2025 - Ganjil"
             let academicYearId;
             if (row["Tahun Ajaran"] && row["Tahun Ajaran"] !== "-") {
-                const [yearPart, semesterPart] = String(row["Tahun Ajaran"]).split(" - ").map(s => s.trim());
+                const { yearPart, semesterPart } = splitAcademicYearCell(row["Tahun Ajaran"]);
                 const yearRange = yearPart && yearPart.includes("/") ? yearPart : (yearPart ? `${yearPart}/${parseInt(yearPart, 10) + 1}` : null);
                 const semester = semesterPart && String(semesterPart).toLowerCase() === "genap" ? "genap" : "ganjil";
                 const ay = yearRange ? await masterDataTaRepository.findAcademicYearByYearAndSemester(yearRange, semester) : null;

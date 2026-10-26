@@ -220,6 +220,16 @@ export const getRoomOptions = async (req, res, next) => {
 
 
 
+/** GET /yudisiums/:id/participants/summary: the charts of the period detail. */
+export const getParticipantSummary = async (req, res, next) => {
+  try {
+    const data = await participantService.getParticipantSummary(req.params.id);
+    res.json({ success: true, data });
+  } catch (err) {
+    next(err);
+  }
+};
+
 export const getParticipants = async (req, res, next) => {
 
   try {

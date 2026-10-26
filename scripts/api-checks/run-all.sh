@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # Run the API checks, each on a freshly rebuilt and seeded local database (see README.md).
 #
-#   scripts/api-checks/run-all.sh                # every check, in order (p1 … p9, p9r, e2e, e3, e3r, e4, e5, e6, e7)
+#   scripts/api-checks/run-all.sh                # every check, in order (p1 … p9, p9r, e2e, e3, e3r, e4, e5, e6, e7, n1, n2, f1, f2, f3, f4, g1)
 #   scripts/api-checks/run-all.sh p2 p7          # only these
 #   scripts/api-checks/run-all.sh --no-reseed p6 # on the current data (most checks need a clean seed)
 #
@@ -16,12 +16,13 @@ mkdir -p "$LOG_DIR"
 RESEED=1
 if [ "${1:-}" = "--no-reseed" ]; then RESEED=0; shift; fi
 NAMES=("$@")
-[ ${#NAMES[@]} -eq 0 ] && NAMES=(p1 p2 p3 p4 p5 p6 p7 p8 p9 p9r e2e e3 e3r e4 e5 e6 e7)
+[ ${#NAMES[@]} -eq 0 ] && NAMES=(p1 p2 p3 p4 p5 p6 p7 p8 p9 p9r e2e e3 e3r e4 e5 e6 e7 n1 n2 f1 f2 f3 f4 g1)
 
 # seed-thesis-rubrics needs the academic years of seed-master; it fills the CPMKs, rubrics and the
 # minimum passing scores of the running semester (seminar and defence), so results can be finalized.
 BASE_SEEDERS="seed-master seed-thesis-topics seed-thesis-rubrics seed-milestone-templates seed-guidance-milestone seed-thesis-research-flow seed-thesis-monitoring"
-FULL_SEEDERS="$BASE_SEEDERS seed-thesis-proposal-flow"
+# seed-thesis-final-stages adds the Seminar Hasil, Sidang TA and Yudisium demo accounts.
+FULL_SEEDERS="$BASE_SEEDERS seed-thesis-proposal-flow seed-thesis-final-stages"
 
 # The monitoring checks (e3, e3r) were written before the proposal seeder existed.
 seeders_for() { case "$1" in e3|e3r) echo "$BASE_SEEDERS" ;; *) echo "$FULL_SEEDERS" ;; esac; }

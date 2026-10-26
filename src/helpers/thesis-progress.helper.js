@@ -7,7 +7,7 @@
  * This file is the single source for both. Callers select the columns in
  * `THESIS_PROGRESS_SELECT` and call `summarizeThesisProgress`.
  */
-import { THESIS_STATUS, THESIS_PHASE } from "../constants/thesisStatus.js";
+import { THESIS_STATUS, THESIS_PHASE, isThesisOnLeave } from "../constants/thesisStatus.js";
 import { THESIS_ACTIVITY_LABELS } from "../constants/thesisLabels.js";
 
 const DAY_MS = 24 * 60 * 60 * 1000;
@@ -193,11 +193,12 @@ function countedEvaluations(evaluations, startedAt) {
 
 /**
  * Supervision clock of a thesis. It starts at `startDate`, does not count leave
- * (`totalLeaveDays` for finished leaves, and the running leave while the thesis is
- * `on_leave`), and stops when the thesis is closed.
+ * (`totalLeaveDays` for finished leaves, and the running leave while the student is on
+ * leave, `isThesisOnLeave`), and stops when the thesis is closed.
  *
  * `evaluationDue` names the guidance evaluation the Pembimbing 1 should fill now. It is set
- * only for a thesis in `research` that has not passed its results seminar, and only while
+ * only for a thesis in `research`, not paused by a leave, that has not passed its results
+ * seminar, and only while
  * no evaluation is recorded for that stage:
  * - `one_year`: twelve months have run;
  * - `six_month`: six months have run;
@@ -219,12 +220,12 @@ export function getSupervisionClock(thesis, evaluations = [], now = new Date()) 
     oneYearAt: null,
     extensionUntil: null,
     evaluationDue: null,
-    isPaused: thesis?.status === THESIS_STATUS.ON_LEAVE,
+    isPaused: isThesisOnLeave(thesis),
   };
   if (!startedAt) return empty;
 
   const status = thesis.status;
-  const isPaused = status === THESIS_STATUS.ON_LEAVE;
+  const isPaused = isThesisOnLeave(thesis);
   const isClosed = status === THESIS_STATUS.COMPLETED || status === THESIS_STATUS.FAILED;
   const leaveStartedAt = toDate(thesis.leaveStartedAt);
 
@@ -251,7 +252,7 @@ export function getSupervisionClock(thesis, evaluations = [], now = new Date()) 
     sixMonth?.status === "approved" && sixMonth.recommendation === "extend_1_month" ? toDate(sixMonth.extensionUntil) : null;
 
   let evaluationDue = null;
-  if (status === THESIS_STATUS.RESEARCH && !hasPassedSeminar(thesis)) {
+  if (status === THESIS_STATUS.RESEARCH && !isPaused && !hasPassedSeminar(thesis)) {
     if (now.getTime() >= oneYearAt.getTime()) {
       if (!oneYear) evaluationDue = EVALUATION_DUE.ONE_YEAR;
     } else if (now.getTime() >= sixMonthAt.getTime()) {
@@ -284,16 +285,18 @@ export function summarizeThesisProgress(thesis, now = new Date()) {
   return {
     lastActivityAt,
     daysSinceActivity: wholeDaysBetween(lastActivityAt, now),
-    activityLevel: thesis?.status === THESIS_STATUS.RESEARCH ? deriveActivityLevel(lastActivityAt, now) : null,
+    activityLevel:
+      thesis?.status === THESIS_STATUS.RESEARCH && !isThesisOnLeave(thesis) ? deriveActivityLevel(lastActivityAt, now) : null,
     supervisionClock: getSupervisionClock(thesis, thesis?.thesisGuidanceEvaluations ?? [], now),
   };
 }
 
 /** Why a thesis receives no progress warning. */
-export const WARNING_SKIP_REASON = Object.freeze({ NOT_RESEARCH: "not_research", ACTIVE: "active" });
+export const WARNING_SKIP_REASON = Object.freeze({ NOT_RESEARCH: "not_research", ON_LEAVE: "on_leave", ACTIVE: "active" });
 
 export const WARNING_SKIP_LABELS = Object.freeze({
   [WARNING_SKIP_REASON.NOT_RESEARCH]: "Tugas akhir tidak berstatus Penelitian",
+  [WARNING_SKIP_REASON.ON_LEAVE]: "Mahasiswa sedang cuti",
   [WARNING_SKIP_REASON.ACTIVE]: "Aktivitas tugas akhir Lancar",
 });
 
@@ -310,6 +313,9 @@ export function resolveProgressWarning(thesis, now = new Date()) {
   const { activityLevel, daysSinceActivity } = summarizeThesisProgress(thesis, now);
   if (thesis?.status !== THESIS_STATUS.RESEARCH) {
     return { level: null, skipReason: WARNING_SKIP_REASON.NOT_RESEARCH, daysSinceActivity };
+  }
+  if (isThesisOnLeave(thesis)) {
+    return { level: null, skipReason: WARNING_SKIP_REASON.ON_LEAVE, daysSinceActivity };
   }
   if (activityLevel === ACTIVITY_LEVEL.SLOW || activityLevel === ACTIVITY_LEVEL.AT_RISK) {
     return { level: activityLevel, skipReason: null, daysSinceActivity };

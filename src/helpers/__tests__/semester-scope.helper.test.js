@@ -75,7 +75,7 @@ describe("thesis start and end", () => {
   it("only a closed thesis has an end date", () => {
     const statusChangedAt = at("2026-09-01T00:00:00.000Z");
     const updatedAt = at("2026-09-05T00:00:00.000Z");
-    for (const status of ["proposal", "research", "on_leave"]) {
+    for (const status of ["proposal", "research"]) {
       expect(getThesisEndedAt({ status, statusChangedAt, updatedAt })).toBeNull();
     }
     expect(getThesisEndedAt({ status: "completed", statusChangedAt, updatedAt })).toBe(statusChangedAt);
@@ -138,9 +138,10 @@ describe("a thesis running in a semester", () => {
     expect(runsIn(thesis({ createdAt: late }), CURRENT)).toBe(false);
   });
 
-  it("keeps a thesis on leave (BSS) as running, whenever the leave started", () => {
+  it("keeps a thesis paused by a leave as running, whenever the leave started", () => {
     const row = thesis({
-      status: "on_leave",
+      status: "research",
+      leaveStartedAt: at("2026-06-01T00:00:00.000Z"),
       startDate: at("2025-09-01T00:00:00.000Z"),
       // The status last changed before this semester, but the thesis has not ended.
       statusChangedAt: at("2026-06-01T00:00:00.000Z"),

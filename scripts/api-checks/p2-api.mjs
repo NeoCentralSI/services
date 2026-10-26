@@ -35,9 +35,9 @@ await run("1 kelayakan", async () => {
   check("layak: canSubmit true", yes.data?.submission?.canSubmit === true, yes.data?.submission);
   const catalog = await api(U("layak"), "GET", "/thesis-proposals/catalog");
   const by = Object.fromEntries((catalog.data ?? []).map((c) => [c.lecturerId, c]));
-  check("katalog: Husnil penuh (31/10), Aina mendekati batas (9), Ullya tersedia (7)",
-    by[lecturerIds.husnil]?.level === "full" && by[lecturerIds.aina]?.level === "near_limit" && by[lecturerIds.ullya]?.level === "available",
-    [by[lecturerIds.husnil], by[lecturerIds.aina], by[lecturerIds.ullya]].map((c) => c && `${c.fullName}:${c.activeCount}/${c.hardLimit}:${c.level}`));
+  check("katalog: Husnil penuh (31/10), Aina mendekati batas (9), Ullya mendekati kuota semester (4/5, total 7)",
+    by[lecturerIds.husnil]?.level === "full" && by[lecturerIds.aina]?.level === "near_limit" && by[lecturerIds.ullya]?.level === "near_limit",
+    [by[lecturerIds.husnil], by[lecturerIds.aina], by[lecturerIds.ullya]].map((c) => c && `${c.fullName}:${c.activeCount}/${c.totalLimit}:${c.level}`));
 });
 
 await run("2 draf dan aturan judul", async () => {
@@ -62,7 +62,7 @@ await run("3 jalur pilih dosen sendiri", async () => {
   check("tarik sebelum 72 jam ditolak (Tunggu 72 jam lagi)", early.status === 400 && /Tunggu 72 jam lagi/.test(early.json?.message), early.json?.message);
   const inbox = await api(ULLYA, "GET", "/thesis-proposals/supervisor-requests/inbox");
   check("muncul di Permohonan Pembimbing Ullya bertanda periode berjalan", (inbox.data?.waiting ?? []).some((r) => r.id === directId && r.isCurrentPeriod === true), inbox.data?.waiting?.length);
-  check("beban Ullya di kotak masuk", inbox.data?.load?.activeCount === 7 && inbox.data?.load?.hardLimit === 10, inbox.data?.load);
+  check("beban Ullya di kotak masuk", inbox.data?.load?.activeCount === 7 && inbox.data?.load?.totalLimit === 10, inbox.data?.load);
   const other = await api(AINA, "POST", `/thesis-proposals/supervisor-requests/${directId}/respond`, { action: "accept" });
   check("dosen lain 403", other.status === 403, other.status);
   const detailOther = await api(U("menunggu"), "GET", `/thesis-proposals/supervisor-requests/${directId}`);
@@ -76,7 +76,7 @@ await run("3 jalur pilih dosen sendiri", async () => {
   const st = await api(U("layak"), "GET", "/thesis-proposals/me/supervisor-requests");
   check("mahasiswa: tidak bisa mengajukan lagi, pengajuan aktif = accepted", st.data?.submission?.canSubmit === false && st.data?.activeRequest?.status === "accepted", st.data?.submission?.blockedReason);
   const load = await api(ULLYA, "GET", "/thesis-proposals/supervisor-requests/inbox");
-  check("beban Ullya bertambah 1 (langsung dihitung)", load.data?.load?.activeCount === 8 && load.data?.load?.level === "near_limit", load.data?.load);
+  check("beban Ullya bertambah 1 (langsung dihitung)", load.data?.load?.activeCount === 8 && load.data?.load?.acceptedCount === 5 && load.data?.load?.level === "full", load.data?.load);
   const cancel = await api(U("layak"), "POST", `/thesis-proposals/supervisor-requests/${directId}/withdraw`);
   check("batal setelah diterima (sebelum penetapan): cancelled", cancel.data?.status === "cancelled", `${cancel.status} ${cancel.json?.message}`);
   const after = await api(ULLYA, "GET", "/thesis-proposals/supervisor-requests/inbox");
@@ -95,11 +95,11 @@ await run("4 tarik setelah 72 jam", async () => {
   check("setelah ditarik boleh mengajukan lagi", st2.data?.submission?.canSubmit === true, st2.data?.submission?.blockedReason);
 });
 
-await run("5 di atas batas keras", async () => {
+await run("5 di atas batas total", async () => {
   const st = await api(U("menunggu"), "GET", "/thesis-proposals/me/supervisor-requests");
   const id = st.data?.activeRequest?.id;
   const acc = await api(AINA, "POST", `/thesis-proposals/supervisor-requests/${id}/respond`, { action: "accept" });
-  check("Aina (9, di bawah batas keras 10) menerima langsung", acc.data?.status === "accepted", `${acc.data?.status} ${acc.json?.message}`);
+  check("Aina (9, di bawah batas total 10) menerima langsung", acc.data?.status === "accepted", `${acc.data?.status} ${acc.json?.message}`);
   const inbox = await api(AINA, "GET", "/thesis-proposals/supervisor-requests/inbox");
   check("Aina kini penuh (10/10)", inbox.data?.load?.activeCount === 10 && inbox.data?.load?.level === "full", inbox.data?.load);
   // Overquota request already forwarded by the seed.
@@ -116,7 +116,7 @@ await run("5 di atas batas keras", async () => {
   check("Kadep menyetujui: accepted, acceptedOverNormal, TA lahir dengan Husnil", app.data?.status === "accepted" && app.data?.acceptedOverNormal === true && app.data?.supervisor?.id === lecturerIds.husnil && app.data?.thesis?.status === "proposal", `${app.data?.status} ${app.json?.message}`);
 });
 
-await run("6 lecturer di atas batas keras menerima", async () => {
+await run("6 lecturer di atas batas total menerima", async () => {
   // A new request to Aina (now 10/10) must carry the student's justification; Aina forwards.
   const sub = await api(U("lewat_72"), "POST", "/thesis-proposals/supervisor-requests", body({ topicId, lecturerId: lecturerIds.aina, proposedTitle: "Aplikasi Pencatatan Kegiatan Pengabdian Masyarakat", studentJustification: "Topik saya melanjutkan proyek pengabdian Bu Aina tahun lalu." }));
   check("pengajuan ke dosen penuh dengan alasan: rute over_quota", sub.data?.route === "over_quota" && sub.data?.status === "pending", `${sub.data?.route} ${sub.json?.message ?? ""}`);
@@ -150,16 +150,16 @@ await run("7 jalur departemen", async () => {
 
 await run("8 batas bimbingan", async () => {
   const ov = await api(KADEP, "GET", "/supervision-quotas");
-  check("layar batas: batas umum 8/10 berlaku, beban per dosen", ov.data?.general?.softLimit === 8 && ov.data?.applicable?.source === "general" && ov.data?.lecturers?.length >= 10, ov.data?.applicable);
+  check("layar batas: batas total 10 dan kuota semester 5 berlaku, beban per dosen", ov.data?.general?.semesterQuota === 5 && ov.data?.applicable?.source === "general" && ov.data?.lecturers?.length >= 10, ov.data?.applicable);
   const aina = ov.data.lecturers.find((l) => l.lecturerId === lecturerIds.aina);
   check("rincian beban Aina", aina?.breakdown?.waitingAssignment >= 2, aina?.breakdown);
-  const bad = await api(SEKDEP, "PUT", "/supervision-quotas/general", { softLimit: 12, hardLimit: 10 });
-  check("lunak > keras ditolak", bad.status === 400, bad.json?.message);
+  const bad = await api(SEKDEP, "PUT", "/supervision-quotas/general", { semesterQuota: 0, totalLimit: 10 });
+  check("kuota semester nol ditolak", bad.status === 400, bad.json?.message);
   // Batas per semester hanya Kadep; Sekdep membaca.
-  const sekdepPeriod = await api(SEKDEP, "PUT", `/supervision-quotas/periods/${ov.data.academicYear.id}`, { softLimit: 10, hardLimit: 12 });
+  const sekdepPeriod = await api(SEKDEP, "PUT", `/supervision-quotas/periods/${ov.data.academicYear.id}`, { semesterQuota: 10 });
   check("Sekdep tidak mengatur batas semester (403)", sekdepPeriod.status === 403, sekdepPeriod.status);
-  const period = await api(KADEP, "PUT", `/supervision-quotas/periods/${ov.data.academicYear.id}`, { softLimit: 10, hardLimit: 12 });
-  check("batas periode berjalan 10/12 menimpa batas umum", period.data?.applicable?.source === "period" && period.data?.applicable?.hardLimit === 12, period.data?.applicable);
+  const period = await api(KADEP, "PUT", `/supervision-quotas/periods/${ov.data.academicYear.id}`, { semesterQuota: 10 });
+  check("kuota semester 10 tidak mengubah batas total", period.data?.applicable?.source === "period" && period.data?.applicable?.totalLimit === 10 && period.data?.applicable?.semesterQuota === 10, period.data?.applicable);
   const cat = await api(U("lewat_72"), "GET", "/supervision-quotas");
   check("mahasiswa tidak boleh membaca layar batas", cat.status === 403, cat.status);
   const clear = await api(KADEP, "DELETE", `/supervision-quotas/periods/${ov.data.academicYear.id}`);
@@ -170,6 +170,21 @@ await run("8 batas bimbingan", async () => {
   check("pengajuan yang sedang ditinjau tetap ada", sub.data?.activeRequest?.status === "under_review", sub.data?.activeRequest?.status);
   const open = await api(ULLYA, "PATCH", "/supervision-quotas/me/accepting-requests", { acceptingRequests: true });
   check("dosen membuka kembali", open.data?.acceptingRequests === true);
+});
+
+await run("9 kuota semester memicu keputusan Kadep", async () => {
+  const ov = (await api(KADEP, "GET", "/supervision-quotas")).data;
+  await api(KADEP, "PUT", `/supervision-quotas/periods/${ov.academicYear.id}`, { semesterQuota: 1 });
+  const catalog = (await api(U("layak"), "GET", "/thesis-proposals/catalog")).data;
+  const lecturer = catalog.find((item) => item.lecturerId === lecturerIds.ullya);
+  check("kuota semester tercapai dengan total masih di bawah batas; dosen tetap tampil dan menerima", lecturer.acceptedCount >= 1 && lecturer.activeCount < lecturer.totalLimit && lecturer.level === "full" && lecturer.acceptingRequests, lecturer);
+  const sub = await api(U("layak"), "POST", "/thesis-proposals/supervisor-requests", body({ topicId, lecturerId: lecturerIds.ullya, studentJustification: "Topik penelitian sesuai kepakaran dosen pilihan saya." }));
+  check("mahasiswa tetap dapat memilih dosen di atas kuota semester", sub.status === 201 && sub.data?.route === "over_quota", sub.json?.message);
+  const response = await api(ULLYA, "POST", `/thesis-proposals/supervisor-requests/${sub.data.id}/respond`, { action: "accept", lecturerOverquotaReason: "Topik penelitian sesuai dengan proyek dosen." });
+  check("penerimaan diteruskan kepada Kadep karena kuota semester", response.data?.status === "pending_kadep", response.json?.message);
+  const approved = await api(KADEP, "POST", `/thesis-proposals/supervisor-requests/${sub.data.id}/decision`, { action: "approve", notes: "Disetujui setelah mempertimbangkan pemerataan." });
+  check("Kadep dapat menyetujui di atas kuota semester", approved.data?.status === "accepted", approved.json?.message);
+  await api(KADEP, "DELETE", `/supervision-quotas/periods/${ov.academicYear.id}`);
 });
 
 process.exit(summary() ? 1 : 0);

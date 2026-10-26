@@ -33,7 +33,7 @@ vi.mock("../../../config/env.js", () => ({
 }));
 
 import {
-  checkOfficialDocumentHash,
+  findOfficialDocumentByFile,
   getOfficialDocumentVerification,
   renderAndIssueOfficialHtmlDocument,
 } from "../../../services/official-document.service.js";
@@ -64,12 +64,12 @@ describe("Official Document Service", () => {
     });
 
     expect(result).toEqual(Buffer.from("official-pdf"));
-    expect(mockPdf.convertHtmlToPdf).toHaveBeenCalledWith(
-      expect.stringContaining("Validasi Dokumen NeoCentral"),
-    );
+    // The QR alone at the end of the document; its link opens Cek Dokumen.
+    expect(mockPdf.convertHtmlToPdf).toHaveBeenCalledWith(expect.stringContaining('class="official-document-qr"'));
+    expect(mockPdf.convertHtmlToPdf.mock.calls[0][0]).not.toContain("Validasi Dokumen");
     expect(mockQRCode.toDataURL).toHaveBeenCalledWith(
-      expect.stringMatching(/^https:\/\/neocentral\.dev\/verify\/document\/[a-f0-9]{64}$/),
-      expect.any(Object),
+      expect.stringMatching(/^https:\/\/neocentral\.dev\/cek-dokumen\/[a-f0-9]{64}$/),
+      expect.objectContaining({ errorCorrectionLevel: "H" }),
     );
     expect(mockPrisma.officialGeneratedDocument.create).toHaveBeenCalledWith({
       data: expect.objectContaining({
@@ -107,21 +107,16 @@ describe("Official Document Service", () => {
     expect(result).not.toHaveProperty("filePath");
   });
 
-  it("detects matching and modified PDF bytes", async () => {
+  it("finds an uploaded PDF by its bytes, and refuses modified bytes", async () => {
     const buffer = Buffer.from("official-pdf");
     const crypto = await import("crypto");
     const fileHash = crypto.createHash("sha256").update(buffer).digest("hex");
-    mockPrisma.officialGeneratedDocument.findUnique
-      .mockResolvedValueOnce({ fileHash, status: "current" })
-      .mockResolvedValueOnce({ fileHash, status: "current" });
+    mockPrisma.officialGeneratedDocument.findFirst.mockReset().mockImplementation(async ({ where }) =>
+      where?.fileHash === fileHash ? { verificationToken: "token", fileHash, status: "current", version: 1 } : null,
+    );
 
-    await expect(checkOfficialDocumentHash("token", buffer)).resolves.toMatchObject({
-      isValid: true,
-      status: "current",
-    });
-    await expect(checkOfficialDocumentHash("token", Buffer.from("modified"))).resolves.toMatchObject({
-      isValid: false,
-      status: "current",
-    });
+    await expect(findOfficialDocumentByFile(buffer)).resolves.toMatchObject({ token: "token", isCurrent: true });
+    await expect(findOfficialDocumentByFile(Buffer.from("modified"))).rejects.toMatchObject({ statusCode: 404 });
   });
+
 });

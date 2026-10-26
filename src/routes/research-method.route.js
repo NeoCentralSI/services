@@ -50,7 +50,12 @@ import { minimumScoreSchema, submitScoreSchema } from "../validators/research-me
  * Penilaian Proposal, exports and Monitoring Kelas. Class presence is the course's business in
  * SIA, and a pass starts the research phase when the second final score is sent.
  */
+import { logMasterDataChange } from "../middlewares/activity-log.middleware.js";
+import { ENTITY_TYPES } from "../services/auditLog.service.js";
+
 const router = express.Router();
+// Activity log of the proposal assessment master data.
+const logPm = (options) => logMasterDataChange({ scope: "proposal", ...options });
 
 const MANAGE = requireAnyRole([ROLES.SEKRETARIS_DEPARTEMEN, ROLES.KOORDINATOR_METODE_PENELITIAN]);
 const SEKDEP_ONLY = requireAnyRole([ROLES.SEKRETARIS_DEPARTEMEN]);
@@ -65,27 +70,27 @@ router.use(authGuard);
 // Sekretaris Departemen only; the coordinator still reads them. Copy from another period as in
 // the thesis CPMK master data.
 router.get("/cpmks", MANAGE, listCpmks);
-router.post("/cpmks/copy-template", SEKDEP_ONLY, validate(copyCpmkTemplateSchema), copyCpmkTemplate);
-router.post("/cpmks", SEKDEP_ONLY, validate(createCpmkSchema), createCpmk);
-router.patch("/cpmks/:cpmkId", SEKDEP_ONLY, validate(updateCpmkSchema), updateCpmk);
-router.delete("/cpmks/:cpmkId", SEKDEP_ONLY, deleteCpmk);
+router.post("/cpmks/copy-template", SEKDEP_ONLY, logPm({ entity: ENTITY_TYPES.CPMK, operation: "copy" }), validate(copyCpmkTemplateSchema), copyCpmkTemplate);
+router.post("/cpmks", SEKDEP_ONLY, logPm({ entity: ENTITY_TYPES.CPMK }), validate(createCpmkSchema), createCpmk);
+router.patch("/cpmks/:cpmkId", SEKDEP_ONLY, logPm({ entity: ENTITY_TYPES.CPMK, idParam: "cpmkId" }), validate(updateCpmkSchema), updateCpmk);
+router.delete("/cpmks/:cpmkId", SEKDEP_ONLY, logPm({ entity: ENTITY_TYPES.CPMK, idParam: "cpmkId" }), deleteCpmk);
 
 router.get("/assessment-configuration", MANAGE, getConfiguredCpmks);
-router.post("/criteria", SEKDEP_ONLY, validate(createCriteriaSchema), createCriteria);
+router.post("/criteria", SEKDEP_ONLY, logPm({ entity: ENTITY_TYPES.ASSESSMENT_CRITERIA }), validate(createCriteriaSchema), createCriteria);
 router.patch("/criteria/reorder", SEKDEP_ONLY, validate(reorderCriteriaSchema), reorderCriteria);
-router.patch("/criteria/:criteriaId", SEKDEP_ONLY, validate(updateCriteriaSchema), updateCriteria);
-router.delete("/criteria/:criteriaId", SEKDEP_ONLY, deleteCriteria);
-router.delete("/cpmks/:cpmkId/configuration", SEKDEP_ONLY, removeCpmkConfig);
+router.patch("/criteria/:criteriaId", SEKDEP_ONLY, logPm({ entity: ENTITY_TYPES.ASSESSMENT_CRITERIA, idParam: "criteriaId" }), validate(updateCriteriaSchema), updateCriteria);
+router.delete("/criteria/:criteriaId", SEKDEP_ONLY, logPm({ entity: ENTITY_TYPES.ASSESSMENT_CRITERIA, idParam: "criteriaId" }), deleteCriteria);
+router.delete("/cpmks/:cpmkId/configuration", SEKDEP_ONLY, logPm({ entity: ENTITY_TYPES.ASSESSMENT_CRITERIA, idParam: "cpmkId" }), removeCpmkConfig);
 
 router.get("/criteria/:criteriaId/rubrics", MANAGE, listRubrics);
-router.post("/criteria/:criteriaId/rubrics", SEKDEP_ONLY, validate(createRubricSchema), createRubric);
+router.post("/criteria/:criteriaId/rubrics", SEKDEP_ONLY, logPm({ entity: ENTITY_TYPES.ASSESSMENT_RUBRIC }), validate(createRubricSchema), createRubric);
 router.patch("/rubrics/reorder", SEKDEP_ONLY, validate(reorderRubricsSchema), reorderRubrics);
-router.patch("/rubrics/:rubricId", SEKDEP_ONLY, validate(updateRubricSchema), updateRubric);
-router.delete("/rubrics/:rubricId", SEKDEP_ONLY, deleteRubric);
+router.patch("/rubrics/:rubricId", SEKDEP_ONLY, logPm({ entity: ENTITY_TYPES.ASSESSMENT_RUBRIC, idParam: "rubricId" }), validate(updateRubricSchema), updateRubric);
+router.delete("/rubrics/:rubricId", SEKDEP_ONLY, logPm({ entity: ENTITY_TYPES.ASSESSMENT_RUBRIC, idParam: "rubricId" }), deleteRubric);
 
 router.get("/weight-summary", MANAGE, getWeightSummary);
 // Minimum passing score of a period (10.2), next to the seminar and defence minimums
-router.patch("/academic-years/:id/minimum-score", SEKDEP_ONLY, validate(minimumScoreSchema), controller.setMinimumScore);
+router.patch("/academic-years/:id/minimum-score", SEKDEP_ONLY, logPm({ entity: ENTITY_TYPES.ACADEMIC_YEAR, idParam: "id" }), validate(minimumScoreSchema), controller.setMinimumScore);
 
 // General proposal milestone templates: only the Sekretaris
 // Departemen creates, changes, reorders and deletes them (academic master data is the Sekdep's);

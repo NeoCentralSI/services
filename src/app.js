@@ -11,6 +11,9 @@ import { authGuard } from "./middlewares/auth.middleware.js";
 import { checkThesisFileAccess } from "./middlewares/fileAccess.middleware.js";
 
 const app = express();
+// One proxy hop in front (Cloudflare Tunnel in deployment): req.ip is the client address
+// taken from the right end of X-Forwarded-For, which the proxy writes.
+app.set("trust proxy", 1);
 
 app.use(cors(createCorsOptions()));
 app.use(express.json({ limit: "50mb" }));

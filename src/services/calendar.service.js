@@ -1,467 +1,332 @@
-import { PrismaClient } from "../generated/prisma/index.js";
-import { ROLE_CATEGORY } from "../constants/roles.js";
+/**
+ * Calendar and Agenda Mendatang of the dashboard. Events come from the data in force (no copy is
+ * stored), so a cancelled or rescheduled seminar or defence leaves no old event.
+ *
+ * Who sees what:
+ * - Bimbingan: the student and the lecturer of that session.
+ * - Seminar Hasil: the presenting student, Pembimbing 1 and 2, the examiners, Admin, and the
+ *   students registered as its audience.
+ * - Sidang: the student, Pembimbing 1 and 2, the examiners, Admin (no audience).
+ * - Yudisium (the event of a period): everyone.
+ * Seminars and defences appear once their schedule is set (status scheduled or later), never when
+ * cancelled. Examiners who declined are not participants.
+ */
+import prisma from "../config/prisma.js";
+import { getRoleCategory, ROLE_CATEGORY } from "../constants/roles.js";
 import { SCHEDULED_GUIDANCE_STATUSES, effectiveGuidanceDate } from "../constants/guidanceStatus.js";
+import { computeEffectiveStatus } from "../utils/seminarStatus.util.js";
 
-const prisma = new PrismaClient();
+/** Seminar and defence statuses that have a schedule in force. */
+const SCHEDULED_EVENT_STATUSES = ["scheduled", "passed", "passed_with_revision", "failed"];
+
+const EVENT_STATUS_LABELS = {
+  scheduled: "Terjadwal",
+  ongoing: "Sedang Berlangsung",
+  passed: "Lulus",
+  passed_with_revision: "Lulus dengan Revisi",
+  failed: "Tidak Lulus",
+};
+const GUIDANCE_STATUS_LABELS = { accepted: "Diterima", rescheduled: "Diterima" };
+
+export const EVENT_KIND_LABELS = {
+  guidance: "Bimbingan",
+  seminar: "Seminar Hasil",
+  defence: "Sidang",
+  yudisium: "Yudisium",
+};
+
+const COLORS = { guidance: "#3b82f6", seminar: "#8b5cf6", defence: "#f97316", yudisium: "#059669" };
+
+const pad = (n) => String(n).padStart(2, "0");
+
+/** The WIB calendar day of a stored `@db.Date` (UTC midnight of that day): "2026-09-28". */
+const wibDay = (date) => {
+  const d = new Date(date);
+  return `${d.getUTCFullYear()}-${pad(d.getUTCMonth() + 1)}-${pad(d.getUTCDate())}`;
+};
 
 /**
- * Get calendar events for a user based on their role
- * Events are generated from existing data (guidances, seminars, defences)
+ * The instant of a seminar or defence: the stored calendar date (`@db.Date`, UTC midnight of the
+ * WIB date) with the stored WIB wall-clock time (`@db.Time`). Null without a time.
  */
-export async function getMyCalendarEvents(userId, userRole, filters = {}) {
-  const { startDate, endDate, types, status } = filters;
-
-  console.log('[Calendar Service] ===== GET MY CALENDAR EVENTS =====');
-  console.log('[Calendar Service] User ID:', userId);
-  console.log('[Calendar Service] User Role:', userRole);
-  console.log('[Calendar Service] Filters:', filters);
-
-  try {
-    // Get user details to find student/lecturer ID
-    const user = await prisma.user.findUnique({
-      where: { id: userId },
-      include: {
-        student: true,
-        lecturer: true,
-      },
-    });
-
-    if (!user) {
-      throw new Error("User not found");
-    }
-
-    console.log('[Calendar Service] User found:', {
-      id: user.id,
-      fullName: user.fullName,
-      hasStudent: !!user.student,
-      haslecturer: !!user.lecturer,
-      studentId: user.student?.id,
-      lecturerId: user.lecturer?.id
-    });
-
-    const events = [];
-
-    // Get guidance events
-    if (userRole === ROLE_CATEGORY.STUDENT && user.student) {
-      const guidances = await prisma.thesisGuidance.findMany({
-        where: {
-          thesis: {
-            studentId: user.student.id,
-          },
-          // Only show accepted guidances in calendar (not requested or rejected)
-          status: status ? status : { in: SCHEDULED_GUIDANCE_STATUSES },
-          ...(startDate &&
-            endDate && {
-            // A scheduled session sits at its approved/rescheduled time
-            OR: [
-              { requestedDate: { gte: new Date(startDate), lte: new Date(endDate) } },
-              { approvedDate: { gte: new Date(startDate), lte: new Date(endDate) } },
-            ],
-          }),
-        },
-        include: {
-          supervisor: {
-            include: {
-              user: true,
-            },
-          },
-          thesis: {
-            include: {
-              student: {
-                include: {
-                  user: true,
-                },
-              },
-            },
-          },
-        },
-      });
-
-      guidances.forEach((guidance) => {
-        if (guidance.requestedDate) {
-          events.push({
-            id: `guidance-${guidance.id}`,
-            title: `Bimbingan - ${guidance.supervisor?.user?.fullName || "Dosen"}`,
-            description: guidance.studentNotes || "Sesi bimbingan tugas akhir",
-            type:
-              SCHEDULED_GUIDANCE_STATUSES.includes(guidance.status)
-                ? "guidance_scheduled"
-                : guidance.status === "requested"
-                  ? "guidance_request"
-                  : "guidance_rejected",
-            status: guidance.status,
-            startDate: effectiveGuidanceDate(guidance),
-            endDate: effectiveGuidanceDate(guidance),
-            userId,
-            userRole,
-            relatedId: guidance.id,
-            relatedType: "thesis_guidance",
-            participants: [
-              {
-                userId: guidance.supervisor?.user?.id,
-                name: guidance.supervisor?.user?.fullName,
-                role: ROLE_CATEGORY.LECTURER,
-              },
-            ],
-            location: null,
-            meetingLink: null,
-            reminderMinutes: 30,
-            notificationSent: false,
-            color: "#3b82f6",
-            backgroundColor: "#3b82f6",
-          });
-        }
-      });
-
-
-      // Get thesis seminar events
-      const seminars = await prisma.thesisSeminar.findMany({
-        where: {
-          thesis: { studentId: user.student.id },
-          date: { not: null },
-          registeredAt: { not: null },
-          ...(startDate && endDate && {
-            date: {
-              gte: new Date(startDate),
-              lte: new Date(endDate),
-            },
-          }),
-        },
-        include: { room: true },
-      });
-
-      seminars.forEach((s) => {
-        events.push({
-          id: `seminar-${s.id}`,
-          title: "Seminar Hasil",
-          description: "Seminar hasil tugas akhir",
-          type: "seminar_scheduled",
-          status: s.status,
-          startDate: s.startTime || s.date,
-          endDate: s.endTime || s.date,
-          userId,
-          userRole,
-          relatedId: s.id,
-          relatedType: "thesis_seminar",
-          location: s.room?.name || s.meetingLink || "TBA",
-          meetingLink: s.meetingLink,
-          reminderMinutes: 60,
-          color: "#8b5cf6",
-          backgroundColor: "#8b5cf6",
-        });
-      });
-
-      // Get thesis defence events
-      const defences = await prisma.thesisDefence.findMany({
-        where: {
-          thesis: { studentId: user.student.id },
-          date: { not: null },
-          registeredAt: { not: null },
-          ...(startDate && endDate && {
-            date: {
-              gte: new Date(startDate),
-              lte: new Date(endDate),
-            },
-          }),
-        },
-        include: { room: true },
-      });
-
-      defences.forEach((d) => {
-        events.push({
-          id: `defence-${d.id}`,
-          title: "Sidang Tugas Akhir",
-          description: "Ujian sidang tugas akhir",
-          type: "defense_scheduled",
-          status: d.status,
-          startDate: d.startTime || d.date,
-          endDate: d.endTime || d.date,
-          userId,
-          userRole,
-          relatedId: d.id,
-          relatedType: "thesis_defence",
-          location: d.room?.name || d.meetingLink || "TBA",
-          meetingLink: d.meetingLink,
-          reminderMinutes: 60,
-          color: "#f97316",
-          backgroundColor: "#f97316",
-        });
-      });
-    }
-
-    // Lecturer events
-    if (userRole === ROLE_CATEGORY.LECTURER && user.lecturer) {
-      console.log('[Calendar Service] ===== LECTURER SECTION =====');
-      console.log('[Calendar Service] Fetching lecturer guidances for lecturer ID:', user.lecturer.id);
-      console.log('[Calendar Service] Date range:', { startDate, endDate });
-
-      // Debug: Check total guidances for this lecturer (any status)
-      const totalGuidances = await prisma.thesisGuidance.count({
-        where: { supervisorId: user.lecturer.id }
-      });
-      console.log('[Calendar Service] Total guidances (all statuses) for this lecturer:', totalGuidances);
-
-      const acceptedCount = await prisma.thesisGuidance.count({
-        where: {
-          supervisorId: user.lecturer.id,
-          status: "accepted"
-        }
-      });
-      console.log('[Calendar Service] Accepted guidances count:', acceptedCount);
-
-      // Guidance requests - only show accepted guidances in calendar
-      const guidances = await prisma.thesisGuidance.findMany({
-        where: {
-          supervisorId: user.lecturer.id,
-          status: { in: SCHEDULED_GUIDANCE_STATUSES }, // Only scheduled guidances (legacy "rescheduled" included)
-          ...(startDate &&
-            endDate && {
-            // A scheduled session sits at its approved/rescheduled time
-            OR: [
-              { requestedDate: { gte: new Date(startDate), lte: new Date(endDate) } },
-              { approvedDate: { gte: new Date(startDate), lte: new Date(endDate) } },
-            ],
-          }),
-        },
-        include: {
-          thesis: {
-            include: {
-              student: {
-                include: {
-                  user: true,
-                },
-              },
-            },
-          },
-        },
-      });
-
-      console.log('[Calendar Service] Found lecturer guidances:', guidances.length);
-      console.log('[Calendar Service] Guidances:', guidances.map(g => ({
-        id: g.id,
-        status: g.status,
-        supervisorId: g.supervisorId,
-        requestedDate: g.requestedDate,
-        studentName: g.thesis?.student?.user?.fullName
-      })));
-
-      guidances.forEach((guidance) => {
-        if (guidance.requestedDate) {
-          console.log('[Calendar Service] Adding guidance event:', guidance.id);
-          events.push({
-            id: `guidance-${guidance.id}`,
-            title: `Bimbingan - ${guidance.thesis.student.user.fullName}`,
-            description: guidance.studentNotes || "Sesi bimbingan mahasiswa",
-            type:
-              SCHEDULED_GUIDANCE_STATUSES.includes(guidance.status)
-                ? "student_guidance"
-                : guidance.status === "requested"
-                  ? "guidance_request"
-                  : "guidance_rejected",
-            status: guidance.status,
-            startDate: effectiveGuidanceDate(guidance),
-            endDate: effectiveGuidanceDate(guidance),
-            userId,
-            userRole,
-            relatedId: guidance.id,
-            relatedType: "thesis_guidance",
-            participants: [
-              {
-                userId: guidance.thesis.student.user.id,
-                name: guidance.thesis.student.user.fullName,
-                role: ROLE_CATEGORY.STUDENT,
-              },
-            ],
-            location: null,
-            meetingLink: null,
-            reminderMinutes: 30,
-            notificationSent: false,
-            color: "#14b8a6",
-            backgroundColor: "#14b8a6",
-          });
-        }
-      });
-
-      // Get seminars for lecturer (supervisor or examiner)
-      const seminars = await prisma.thesisSeminar.findMany({
-        where: {
-          OR: [
-            { thesis: { thesisSupervisors: { some: { lecturerId: user.lecturer.id } } } },
-            { examiners: { some: { lecturerId: user.lecturer.id } } }
-          ],
-          date: { not: null },
-          registeredAt: { not: null },
-          ...(startDate && endDate && {
-            date: {
-              gte: new Date(startDate),
-              lte: new Date(endDate),
-            },
-          }),
-        },
-        include: {
-          thesis: { include: { student: { include: { user: true } } } },
-          room: true,
-          examiners: true
-        },
-      });
-
-      seminars.forEach(s => {
-        const isExaminer = s.examiners.some(e => e.lecturerId === user.lecturer.id);
-        events.push({
-          id: `seminar-${s.id}`,
-          title: `Seminar: ${s.thesis.student.user.fullName}`,
-          description: `Seminar hasil mahasiswa ${s.thesis.student.user.fullName}`,
-          type: isExaminer ? "seminar_as_examiner" : "seminar_scheduled",
-          status: s.status,
-          startDate: s.startTime || s.date,
-          endDate: s.endTime || s.date,
-          userId,
-          userRole,
-          relatedId: s.id,
-          relatedType: "thesis_seminar",
-          location: s.room?.name || s.meetingLink || "TBA",
-          meetingLink: s.meetingLink,
-          reminderMinutes: 60,
-          color: isExaminer ? "#6366f1" : "#8b5cf6",
-          backgroundColor: isExaminer ? "#6366f1" : "#8b5cf6",
-        });
-      });
-
-      // Get defences for lecturer (supervisor or examiner)
-      const defences = await prisma.thesisDefence.findMany({
-        where: {
-          OR: [
-            { thesis: { thesisSupervisors: { some: { lecturerId: user.lecturer.id } } } },
-            { examiners: { some: { lecturerId: user.lecturer.id } } }
-          ],
-          date: { not: null },
-          registeredAt: { not: null },
-          ...(startDate && endDate && {
-            date: {
-              gte: new Date(startDate),
-              lte: new Date(endDate),
-            },
-          }),
-        },
-        include: {
-          thesis: { include: { student: { include: { user: true } } } },
-          room: true,
-          examiners: true
-        },
-      });
-
-      defences.forEach(d => {
-        const isExaminer = d.examiners.some(e => e.lecturerId === user.lecturer.id);
-        events.push({
-          id: `defence-${d.id}`,
-          title: `Sidang: ${d.thesis.student.user.fullName}`,
-          description: `Sidang tugas akhir mahasiswa ${d.thesis.student.user.fullName}`,
-          type: isExaminer ? "defense_as_examiner" : "defense_scheduled",
-          status: d.status,
-          startDate: d.startTime || d.date,
-          endDate: d.endTime || d.date,
-          userId,
-          userRole,
-          relatedId: d.id,
-          relatedType: "thesis_defence",
-          location: d.room?.name || d.meetingLink || "TBA",
-          meetingLink: d.meetingLink,
-          reminderMinutes: 60,
-          color: isExaminer ? "#ea580c" : "#f97316",
-          backgroundColor: isExaminer ? "#ea580c" : "#f97316",
-        });
-      });
-
-    }
-
-    // Filter by types if provided
-    let filteredEvents = events;
-    console.log('[Calendar Service] Total events before filter:', events.length);
-    console.log('[Calendar Service] Filter types:', types);
-    if (types && types.length > 0 && !types.includes("all")) {
-      filteredEvents = events.filter((event) => types.includes(event.type));
-      console.log('[Calendar Service] Events after type filter:', filteredEvents.length);
-    }
-
-    console.log('[Calendar Service] Returning events:', filteredEvents.length);
-    console.log('[Calendar Service] Event types:', filteredEvents.map(e => ({ id: e.id, type: e.type, title: e.title })));
-
-    return {
-      events: filteredEvents.sort(
-        (a, b) => new Date(a.startDate) - new Date(b.startDate)
-      ),
-    };
-  } catch (error) {
-    console.error("Error getting calendar events:", error);
-    throw error;
-  }
+export function combineWibDateTime(date, time) {
+  if (!date || !time) return null;
+  const t = new Date(time);
+  return new Date(`${wibDay(date)}T${pad(t.getUTCHours())}:${pad(t.getUTCMinutes())}:00+07:00`).toISOString();
 }
 
 /**
- * Get upcoming events (next N days)
+ * Start and end of a seminar or defence. Without a time (e.g. an archived or imported one) it is
+ * an all-day event on its WIB date, never 00.00.
  */
-export async function getUpcomingEvents(userId, userRole, days = 7) {
-  const startDate = new Date();
-  const endDate = new Date();
-  endDate.setDate(endDate.getDate() + days);
+export function eventTimes(date, startTime, endTime) {
+  const start = combineWibDateTime(date, startTime);
+  if (!start) {
+    const day = wibDay(date);
+    const next = new Date(`${day}T00:00:00+07:00`);
+    next.setUTCDate(next.getUTCDate() + 1);
+    return { startDate: day, endDate: null, allDay: true, endsAt: next.toISOString() };
+  }
+  const end = combineWibDateTime(date, endTime) ?? start;
+  return { startDate: start, endDate: end, allDay: false, endsAt: end };
+}
 
-  return getMyCalendarEvents(userId, userRole, {
-    startDate: startDate.toISOString(),
-    endDate: endDate.toISOString(),
+const DAY_MS = 24 * 60 * 60 * 1000;
+
+/**
+ * Query bounds: one day of margin on each side, since `@db.Date` holds UTC midnight of the WIB date
+ * and guidance may last after its start. The exact overlap is checked afterwards.
+ */
+const queryRange = (startDate, endDate) =>
+  startDate && endDate
+    ? { gte: new Date(new Date(startDate).getTime() - DAY_MS), lte: new Date(new Date(endDate).getTime() + DAY_MS) }
+    : undefined;
+
+/** Instant an event starts, for sorting and overlap (an all-day date is its WIB midnight). */
+const startsAt = (e) => (e.allDay ? new Date(`${e.startDate}T00:00:00+07:00`) : new Date(e.startDate));
+const endsAt = (e) => new Date(e.endsAt ?? e.endDate ?? e.startDate);
+
+/** Who is asking: student and lecturer records, and whether an active role is an Admin one. */
+async function resolveViewer(userId) {
+  const user = await prisma.user.findUnique({
+    where: { id: userId },
+    select: {
+      id: true,
+      student: { select: { id: true } },
+      lecturer: { select: { id: true } },
+      userHasRoles: { where: { status: "active" }, select: { role: { select: { name: true } } } },
+    },
+  });
+  if (!user) throw Object.assign(new Error("Pengguna tidak ditemukan"), { statusCode: 404 });
+  const categories = new Set(user.userHasRoles.map((r) => getRoleCategory(r.role?.name)));
+  return {
+    userId: user.id,
+    studentId: user.student?.id ?? null,
+    lecturerId: user.lecturer?.id ?? null,
+    isAdmin: categories.has(ROLE_CATEGORY.ADMIN),
+    isStudent: !!user.student,
+    isLecturer: !!user.lecturer,
+  };
+}
+
+async function guidanceEvents(viewer, range) {
+  const owners = [];
+  if (viewer.isStudent) owners.push({ thesis: { studentId: viewer.studentId } });
+  if (viewer.isLecturer) owners.push({ supervisorId: viewer.lecturerId });
+  if (owners.length === 0) return [];
+  const guidances = await prisma.thesisGuidance.findMany({
+    where: {
+      status: { in: SCHEDULED_GUIDANCE_STATUSES },
+      OR: owners,
+      ...(range && { AND: [{ OR: [{ requestedDate: range }, { approvedDate: range }] }] }),
+    },
+    include: {
+      supervisor: { include: { user: { select: { id: true, fullName: true } } } },
+      thesis: { include: { student: { include: { user: { select: { id: true, fullName: true } } } } } },
+    },
+  });
+  return guidances
+    .filter((g) => g.requestedDate)
+    .map((g) => {
+      const student = g.thesis?.student?.user;
+      const lecturer = g.supervisor?.user;
+      const asLecturer = viewer.isLecturer && g.supervisorId === viewer.lecturerId;
+      const at = effectiveGuidanceDate(g);
+      const end = at ? new Date(new Date(at).getTime() + (g.duration ?? 60) * 60 * 1000) : at;
+      return {
+        id: `guidance-${g.id}`,
+        kind: "guidance",
+        kindLabel: EVENT_KIND_LABELS.guidance,
+        type: asLecturer ? "student_guidance" : "guidance_scheduled",
+        title: `Bimbingan – ${(asLecturer ? student?.fullName : lecturer?.fullName) ?? "-"}`,
+        description: g.studentNotes || "Sesi bimbingan tugas akhir",
+        status: "accepted",
+        statusLabel: GUIDANCE_STATUS_LABELS[g.status] ?? "Diterima",
+        startDate: at,
+        endDate: end,
+        allDay: false,
+        relatedId: g.id,
+        relatedType: "thesis_guidance",
+        location: null,
+        meetingLink: null,
+        participants: [
+          student && { userId: student.id, name: student.fullName, role: "student", roleLabel: "Mahasiswa" },
+          lecturer && { userId: lecturer.id, name: lecturer.fullName, role: "lecturer", roleLabel: "Dosen Pembimbing" },
+        ].filter(Boolean),
+        // The copy of the session in the viewer's own Outlook calendar, when it was synced.
+        outlookEventId: asLecturer ? g.supervisorCalendarEventId ?? null : g.studentCalendarEventId ?? null,
+        detailPath: asLecturer ? `/tugas-akhir/bimbingan/lecturer/session/${g.id}` : `/tugas-akhir/bimbingan/student/session/${g.id}`,
+        color: COLORS.guidance,
+      };
+    });
+}
+
+/** Seminars or defences the viewer may see, with their people. */
+async function thesisEvents(viewer, range, kind) {
+  const model = kind === "seminar" ? prisma.thesisSeminar : prisma.thesisDefence;
+  const visible = [];
+  if (viewer.isStudent) {
+    visible.push({ thesis: { studentId: viewer.studentId } });
+    if (kind === "seminar") visible.push({ audiences: { some: { studentId: viewer.studentId } } });
+  }
+  if (viewer.isLecturer) {
+    visible.push({ thesis: { thesisSupervisors: { some: { lecturerId: viewer.lecturerId } } } });
+    visible.push({ examiners: { some: { lecturerId: viewer.lecturerId, availabilityStatus: { not: "unavailable" } } } });
+  }
+  if (!viewer.isAdmin && visible.length === 0) return [];
+  const rows = await model.findMany({
+    where: {
+      status: { in: SCHEDULED_EVENT_STATUSES },
+      date: range ?? { not: null },
+      // Admin sees every seminar and defence ("OR: [{}]" would match nothing).
+      ...(viewer.isAdmin ? {} : { OR: visible }),
+    },
+    include: {
+      room: { select: { name: true } },
+      thesis: {
+        select: {
+          title: true,
+          student: { select: { user: { select: { id: true, fullName: true } } } },
+          thesisSupervisors: {
+            orderBy: { role: { name: "asc" } },
+            select: { role: { select: { name: true } }, lecturer: { select: { user: { select: { id: true, fullName: true } } } } },
+          },
+        },
+      },
+      examiners: {
+        where: { availabilityStatus: { not: "unavailable" } },
+        orderBy: { order: "asc" },
+        select: { order: true, lecturerId: true },
+      },
+    },
+  });
+  const examinerIds = [...new Set(rows.flatMap((r) => r.examiners.map((e) => e.lecturerId)))];
+  const examinerUsers = examinerIds.length
+    ? await prisma.user.findMany({ where: { id: { in: examinerIds } }, select: { id: true, fullName: true } })
+    : [];
+  const nameOf = new Map(examinerUsers.map((u) => [u.id, u.fullName]));
+
+  return rows.map((row) => {
+    const student = row.thesis?.student?.user;
+    const effective = computeEffectiveStatus(row.status, row.date, row.startTime, row.endTime);
+    const isExaminer = viewer.isLecturer && row.examiners.some((e) => e.lecturerId === viewer.lecturerId);
+    const label = EVENT_KIND_LABELS[kind];
+    return {
+      id: `${kind}-${row.id}`,
+      kind,
+      kindLabel: label,
+      type: kind === "seminar" ? (isExaminer ? "seminar_as_examiner" : "seminar_scheduled") : (isExaminer ? "defense_as_examiner" : "defense_scheduled"),
+      title: `${label} – ${student?.fullName ?? "-"}`,
+      description: row.thesis?.title ?? null,
+      status: effective,
+      statusLabel: EVENT_STATUS_LABELS[effective] ?? effective,
+      ...eventTimes(row.date, row.startTime, row.endTime),
+      relatedId: row.id,
+      relatedType: kind === "seminar" ? "thesis_seminar" : "thesis_defence",
+      location: row.room?.name ?? (row.meetingLink ? "Daring" : "TBA"),
+      meetingLink: row.meetingLink ?? null,
+      participants: [
+        student && { userId: student.id, name: student.fullName, role: "student", roleLabel: "Mahasiswa" },
+        ...(row.thesis?.thesisSupervisors ?? []).map((s) => ({
+          userId: s.lecturer?.user?.id,
+          name: s.lecturer?.user?.fullName,
+          role: "lecturer",
+          roleLabel: s.role?.name ?? "Pembimbing",
+        })),
+        ...row.examiners.map((e) => ({ userId: e.lecturerId, name: nameOf.get(e.lecturerId) ?? "-", role: "lecturer", roleLabel: `Penguji ${e.order}` })),
+      ].filter(Boolean),
+      outlookEventId: null,
+      detailPath: kind === "seminar" ? `/tugas-akhir/seminar-hasil/${row.id}` : `/tugas-akhir/sidang/${row.id}`,
+      color: COLORS[kind],
+    };
   });
 }
 
+async function yudisiumEvents(viewer, range) {
+  const periods = await prisma.yudisium.findMany({
+    where: { eventDate: range ?? { not: null } },
+    select: { id: true, name: true, eventDate: true, room: { select: { name: true } } },
+  });
+  return periods.map((p) => ({
+    id: `yudisium-${p.id}`,
+    kind: "yudisium",
+    kindLabel: EVENT_KIND_LABELS.yudisium,
+    type: "yudisium_event",
+    title: `Yudisium – ${p.name}`,
+    description: null,
+    status: null,
+    statusLabel: null,
+    startDate: p.eventDate,
+    endDate: p.eventDate,
+    allDay: false,
+    relatedId: p.id,
+    relatedType: "yudisium",
+    location: p.room?.name ?? null,
+    meetingLink: null,
+    participants: [],
+    outlookEventId: null,
+    // Staff open the period; a student their own Yudisium page; nobody else has a page for it.
+    detailPath: viewer.isAdmin || viewer.isLecturer ? `/yudisium/${p.id}` : viewer.isStudent ? "/yudisium" : null,
+    color: COLORS.yudisium,
+  }));
+}
+
 /**
- * Get event statistics
+ * Events of the viewer between two dates (all events in force when no range is given), sorted by
+ * time. `userRole` is kept for the callers; the viewer's records and roles decide.
  */
-export async function getEventStatistics(userId, userRole) {
-  try {
-    const now = new Date();
-    const todayStart = new Date(now.setHours(0, 0, 0, 0));
-    const todayEnd = new Date(now.setHours(23, 59, 59, 999));
-    const next7Days = new Date();
-    next7Days.setDate(next7Days.getDate() + 7);
-    const monthStart = new Date(now.getFullYear(), now.getMonth(), 1);
-    const monthEnd = new Date(now.getFullYear(), now.getMonth() + 1, 0);
-
-    // Get all events
-    const allEvents = await getMyCalendarEvents(userId, userRole, {
-      startDate: todayStart.toISOString(),
-      endDate: next7Days.toISOString(),
-    });
-
-    const monthEvents = await getMyCalendarEvents(userId, userRole, {
-      startDate: monthStart.toISOString(),
-      endDate: monthEnd.toISOString(),
-    });
-
-    // Count today's events
-    const todayEvents = allEvents.events.filter((event) => {
-      const eventDate = new Date(event.startDate);
-      return eventDate >= todayStart && eventDate <= todayEnd;
-    }).length;
-
-    // Count upcoming events (next 7 days)
-    const upcomingEvents = allEvents.events.length;
-
-    // Count accepted this month
-    const completedThisMonth = monthEvents.events.filter(
-      (event) => SCHEDULED_GUIDANCE_STATUSES.includes(event.status)
-    ).length;
-
-    // Count pending actions (requested status)
-    const pendingActions = allEvents.events.filter(
-      (event) => event.status === "requested"
-    ).length;
-
-    return {
-      todayEvents,
-      upcomingEvents,
-      completedThisMonth,
-      pendingActions,
-    };
-  } catch (error) {
-    console.error("Error getting event statistics:", error);
-    throw error;
+export async function getMyCalendarEvents(userId, _userRole, filters = {}) {
+  const { startDate, endDate, types } = filters;
+  const viewer = await resolveViewer(userId);
+  const range = queryRange(startDate, endDate);
+  const lists = await Promise.all([
+    guidanceEvents(viewer, range),
+    thesisEvents(viewer, range, "seminar"),
+    thesisEvents(viewer, range, "defence"),
+    yudisiumEvents(viewer, range),
+  ]);
+  let events = lists.flat();
+  // Exact overlap with the asked range: an event shows while any part of it falls inside.
+  if (startDate && endDate) {
+    const from = new Date(startDate);
+    const to = new Date(endDate);
+    events = events.filter((e) => endsAt(e) >= from && startsAt(e) <= to);
   }
+  if (types?.length && !types.includes("all")) events = events.filter((e) => types.includes(e.type) || types.includes(e.kind));
+  events.sort((a, b) => startsAt(a) - startsAt(b));
+  return { events };
+}
+
+/**
+ * Agenda Mendatang: the same events and rules as the calendar. An event still going on counts
+ * (it ends now or later), then the coming ones by time, the first `limit`. The search is not tied
+ * to the month shown in the calendar: it looks `days` ahead (two years by default).
+ */
+export async function getUpcomingEvents(userId, userRole, days = 730, limit = 5) {
+  const now = new Date();
+  const end = new Date(now.getTime() + days * DAY_MS);
+  const { events } = await getMyCalendarEvents(userId, userRole, { startDate: now.toISOString(), endDate: end.toISOString() });
+  return { events: events.filter((e) => endsAt(e) >= now).slice(0, limit) };
+}
+
+/** Counts for the dashboard: today, the next 7 days, this month. */
+export async function getEventStatistics(userId, userRole) {
+  const now = new Date();
+  const todayStart = new Date(now);
+  todayStart.setHours(0, 0, 0, 0);
+  const todayEnd = new Date(now);
+  todayEnd.setHours(23, 59, 59, 999);
+  const next7Days = new Date(now);
+  next7Days.setDate(next7Days.getDate() + 7);
+  const monthStart = new Date(now.getFullYear(), now.getMonth(), 1);
+  const monthEnd = new Date(now.getFullYear(), now.getMonth() + 1, 0, 23, 59, 59, 999);
+
+  const week = await getMyCalendarEvents(userId, userRole, { startDate: todayStart.toISOString(), endDate: next7Days.toISOString() });
+  const month = await getMyCalendarEvents(userId, userRole, { startDate: monthStart.toISOString(), endDate: monthEnd.toISOString() });
+  return {
+    todayEvents: week.events.filter((e) => startsAt(e) <= todayEnd).length,
+    upcomingEvents: week.events.length,
+    completedThisMonth: month.events.filter((e) => e.kind === "guidance").length,
+    pendingActions: 0,
+  };
 }

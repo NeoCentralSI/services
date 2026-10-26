@@ -23,6 +23,7 @@ const seminarListInclude = {
         },
       },
       thesisSupervisors: {
+        orderBy: { role: { name: "asc" } },
         select: {
           id: true,
           lecturerId: true,
@@ -113,6 +114,7 @@ const seminarArchiveInclude = {
         },
       },
       thesisSupervisors: {
+        orderBy: { role: { name: "asc" } },
         select: {
           lecturerId: true,
           role: { select: { name: true } },
@@ -191,7 +193,8 @@ export async function findArchiveSeminarsPaginated({ where, skip, take }) {
       where,
       skip,
       take,
-      orderBy: { createdAt: "desc" },
+      // Archive: latest held date first (imports too), then the newest record; status plays no part.
+      orderBy: [{ date: "desc" }, { createdAt: "desc" }, { id: "asc" }],
       include: seminarArchiveInclude,
     }),
     prisma.thesisSeminar.count({ where }),
@@ -339,6 +342,7 @@ export async function findSeminarBasicById(id) {
             },
           },
           thesisSupervisors: {
+            orderBy: { role: { name: "asc" } },
             select: {
               lecturer: {
                 select: {
@@ -628,6 +632,7 @@ export async function getStudentThesisWithSeminarInfo(studentId) {
       id: true,
       title: true,
       thesisSupervisors: {
+        orderBy: { role: { name: "asc" } },
         select: {
           id: true,
           lecturerId: true,
@@ -781,6 +786,7 @@ const announcedSeminarSelect = {
         },
       },
       thesisSupervisors: {
+        orderBy: { role: { name: "asc" } },
         select: {
           role: { select: { name: true } },
           lecturer: {
@@ -889,6 +895,7 @@ export async function findThesesForOptions() {
         },
       },
       thesisSupervisors: {
+        orderBy: { role: { name: "asc" } },
         select: { lecturerId: true },
       },
       thesisSeminars: {
@@ -1036,6 +1043,7 @@ export async function findSeminarSupervisorRole(seminarId, lecturerId) {
       thesis: {
         select: {
           thesisSupervisors: {
+            orderBy: { role: { name: "asc" } },
             where: { lecturerId },
             select: {
               id: true,
@@ -1065,6 +1073,7 @@ export async function findAllSeminarResultsForExport(where) {
         include: {
           student: { include: { user: true } },
           thesisSupervisors: {
+            orderBy: { role: { name: "asc" } },
             include: {
               lecturer: { include: { user: true } },
               role: true,

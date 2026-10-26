@@ -52,6 +52,12 @@ function requestView(request) {
 const requests = () => world.state.requests;
 const isPending = (r) => r.status === "pending";
 
+// The student action shield (TA course of the semester, leave) reads tables this test does not fake.
+vi.mock("../../services/thesisLifecycle.service.js", async (importOriginal) => ({
+  ...(await importOriginal()),
+  getStudentThesisActionBlock: vi.fn(async () => ({ blocked: false, code: null, reason: null, takingThesisCourse: true })),
+  assertStudentThesisActionAllowed: vi.fn(async () => ({ blocked: false, code: null, reason: null, takingThesisCourse: true })),
+}));
 vi.mock("../../repositories/thesis-change-request.repository.js", () => ({
   findById: async (id) => requestView(requests().find((r) => r.id === id)),
   findOpenByThesisId: async (thesisId) => requestView(requests().find((r) => r.thesisId === thesisId && isPending(r))),
@@ -221,8 +227,9 @@ describe("who may ask, and when", () => {
       thesis: { id: "T1", supervisors: [{ lecturerId: HUSNIL, position: "pembimbing_1" }, { lecturerId: AFRI, position: "pembimbing_2" }] },
     });
 
-    thesis("T1").status = "on_leave";
-    expect((await service.getThesisChangeContext(STUDENT)).blockReason).toContain("Berhenti Studi Sementara (BSS)");
+    // The student is on leave (the thesis stays in research, paused).
+    thesis("T1").leaveStartedAt = new Date();
+    expect((await service.getThesisChangeContext(STUDENT)).blockReason).toContain("selama mahasiswa cuti");
   });
 
   it.each(["registered", "verified", "examiner_assigned", "scheduled", "passed", "passed_with_revision"])(
@@ -672,14 +679,14 @@ describe("Alihkan Mahasiswa", () => {
 
   it("batch decision reports a request that cannot be applied without blocking the others", async () => {
     const { batchId, requests: created } = await transfer(["T1", "T2"]);
-    thesis("T2").status = "on_leave";
+    thesis("T2").leaveStartedAt = new Date();
 
     const result = await service.decideBatchAsKadep(KADEP, batchId, { approve: true, notes: "Diputuskan langsung" });
 
     expect(result).toMatchObject({ decided: 1, failed: 1 });
     expect(result.results.find((r) => r.requestId === created[1].id)).toMatchObject({
       success: false,
-      message: expect.stringContaining("Berhenti Studi Sementara (BSS)"),
+      message: expect.stringContaining("selama mahasiswa cuti"),
     });
     expect(activeSupervisors("T1")).toEqual([["Pembimbing 1", AINA], ["Pembimbing 2", AFRI]]);
   });

@@ -114,7 +114,25 @@ const ACCOUNTS = [
     lastActivityDaysAgo: 70,
     completedGuidances: 3,
     milestones: { total: 5, completed: 2 },
-    leave: { startedDaysAgo: 60 }, // BSS sejak 60 hari lalu: masa bimbingan berhenti
+    // Status mahasiswa Cuti sejak 60 hari lalu: TA Penelitian dijeda, masa bimbingan berhenti.
+    leave: { startedDaysAgo: 60 },
+  },
+  {
+    key: "drop_out",
+    email: "ta_dropout@fti.unand.ac.id",
+    fullName: "Uji TA Drop Out",
+    nim: "2211529025",
+    title: "Sistem Informasi Inventaris Laboratorium Departemen",
+    p1: LECTURER.husnil,
+    p2: LECTURER.afriyanti,
+    // Status mahasiswa Drop Out: satu-satunya TA sudah Gagal (drop out), pembimbing dilepas.
+    studentStatus: "dropout",
+    onlyFailedThesis: {
+      startedMonthsAgo: 10,
+      endedMonthsAgo: 1,
+      terminationReason: "dropped_out",
+      terminationNote: "Status mahasiswa diubah menjadi Drop Out.",
+    },
   },
 
   // ── C. Kesiapan seminar dan sidang ─────────────────────────────────────────────────
@@ -424,10 +442,11 @@ async function ensureStudent(account, passwordHash, studentRole) {
     update: {},
     create: { userId: user.id, roleId: studentRole.id, status: "active" },
   });
+  const status = account.studentStatus ?? (account.leave ? "bss" : "active");
   await prisma.student.upsert({
     where: { id: user.id },
-    update: {},
-    create: { id: user.id, status: "active", enrollmentYear: 2022, sksCompleted: 138 },
+    update: { status },
+    create: { id: user.id, status, enrollmentYear: 2022, sksCompleted: 138 },
   });
   return user;
 }
@@ -586,8 +605,7 @@ async function createEvaluation(thesis, account, p1Relation, startDate) {
 }
 
 /** An earlier thesis of the same student that was stopped, for the Riwayat tab. */
-async function createPreviousThesis(student, account, ctx) {
-  const config = account.previousThesis;
+async function createPreviousThesis(student, account, ctx, config = account.previousThesis) {
   const startDate = monthsAgo(config.startedMonthsAgo);
   const endedAt = monthsAgo(config.endedMonthsAgo);
   const thesis = await prisma.thesis.create({
@@ -611,6 +629,12 @@ async function createPreviousThesis(student, account, ctx) {
   await prisma.thesisSupervisors.create({
     data: { thesisId: thesis.id, lecturerId: p1.id, roleId: ctx.roles.p1.id, status: "released", activeRoleKey: null },
   });
+  if (config.withSupervisor2 && account.p2) {
+    const p2 = await requireUser(account.p2);
+    await prisma.thesisSupervisors.create({
+      data: { thesisId: thesis.id, lecturerId: p2.id, roleId: ctx.roles.p2.id, status: "released", activeRoleKey: null },
+    });
+  }
 }
 
 async function seedAccount(account, ctx) {
@@ -622,6 +646,10 @@ async function seedAccount(account, ctx) {
   }
 
   if (account.previousThesis) await createPreviousThesis(student, account, ctx);
+  if (account.onlyFailedThesis) {
+    await createPreviousThesis(student, account, ctx, { ...account.onlyFailedThesis, title: account.title, withSupervisor2: true });
+    return;
+  }
 
   const startDate = monthsAgo(account.startedMonthsAgo);
   const lastActivityAt = daysAgo(account.lastActivityDaysAgo);
@@ -635,9 +663,10 @@ async function seedAccount(account, ctx) {
       academicYearId: ctx.academicYear.id,
       startDate,
       createdAt: startDate,
-      status: account.leave ? THESIS_STATUS.ON_LEAVE : THESIS_STATUS.RESEARCH,
-      statusChangedAt: leaveStartedAt ?? startDate,
-      ...(account.leave ? { statusBeforeLeave: THESIS_STATUS.RESEARCH, leaveStartedAt } : {}),
+      status: THESIS_STATUS.RESEARCH,
+      statusChangedAt: startDate,
+      // The leave follows the student status (`bss`, set in ensureStudent).
+      ...(leaveStartedAt ? { leaveStartedAt } : {}),
     },
   });
 

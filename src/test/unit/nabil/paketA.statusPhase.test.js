@@ -14,6 +14,12 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { buildState } from "./helpers/guidanceFixtures.js";
 import { store, resetDb, callsTo, prismaFake } from "./helpers/fakePrisma.js";
 
+// The student action shield (TA course of the semester, leave) reads tables this test does not fake.
+vi.mock("../../../services/thesisLifecycle.service.js", async (importOriginal) => ({
+  ...(await importOriginal()),
+  getStudentThesisActionBlock: vi.fn(async () => ({ blocked: false, code: null, reason: null, takingThesisCourse: true })),
+  assertStudentThesisActionAllowed: vi.fn(async () => ({ blocked: false, code: null, reason: null, takingThesisCourse: true })),
+}));
 vi.mock("../../../config/prisma.js", async () => ({
   default: (await import("./helpers/fakePrisma.js")).prismaFake,
 }));
@@ -110,8 +116,9 @@ describe("Pengajuan bimbingan fase TA", () => {
     });
   });
 
-  it("TA on_leave ditolak (403) di aksi mahasiswa, dosen, dan milestone", async () => {
-    thesisRow().status = "on_leave";
+  it("mahasiswa cuti: TA dijeda, ditolak (403) di aksi mahasiswa, dosen, dan milestone", async () => {
+    // Leave follows the student status; the thesis stays in research with the leave start set.
+    thesisRow().leaveStartedAt = new Date();
     const known = fixtureGuidanceIds();
 
     await expect(

@@ -89,6 +89,8 @@ const tx = {
       return { count: hit.length };
     },
   },
+  // A termination closes pending change requests too; none in these fixtures.
+  thesisChangeRequest: { updateMany: async () => ({ count: 0 }) },
   auditLog: { create: async ({ data }) => world.state.audit.push(data) },
 };
 
@@ -186,7 +188,8 @@ describe("what is due and who may fill it", () => {
   });
 
   it.each([
-    ["on leave", () => { thesis().status = "on_leave"; thesis().leaveStartedAt = daysAgo(5); }, "Berhenti Studi Sementara (BSS)"],
+    // Leave follows the student status: the thesis stays in research, its leave start is set.
+    ["on leave", () => { thesis().leaveStartedAt = daysAgo(5); }, "selama mahasiswa cuti"],
     ["after a passed results seminar", () => { world.state.seminars.push({ thesisId: "T1", status: "passed" }); }, "belum lulus seminar hasil"],
   ])("is not available %s", async (_label, arrange, text) => {
     arrange();

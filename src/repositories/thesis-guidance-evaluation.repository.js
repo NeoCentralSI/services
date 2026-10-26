@@ -53,7 +53,7 @@ export async function findStudentThesisId(studentId, client = prisma) {
     select: { id: true, status: true },
     orderBy: [{ createdAt: "desc" }, { id: "desc" }],
   });
-  const open = theses.find((thesis) => ["research", "on_leave", "proposal"].includes(thesis.status));
+  const open = theses.find((thesis) => ["research", "proposal"].includes(thesis.status));
   return (open ?? theses[0])?.id ?? null;
 }
 

@@ -24,7 +24,7 @@ export async function findEligibleExaminers(defenceId) {
   const defence = await prisma.thesisDefence.findUnique({
     where: { id: defenceId },
     select: {
-      thesis: { select: { thesisSupervisors: { select: { lecturerId: true } } } },
+      thesis: { select: { thesisSupervisors: { orderBy: { role: { name: "asc" } }, select: { lecturerId: true } } } },
     },
   });
   if (!defence) return [];

@@ -3,7 +3,7 @@
  * defence row at a time: the summary cards, "Jadwal Mendatang" and "Perlu Perhatian".
  * Pure; the thresholds and labels are in constants/thesis-event-monitoring.js.
  */
-import { THESIS_STATUS } from "../constants/thesisStatus.js";
+import { THESIS_STATUS, STUDENT_STATUS } from "../constants/thesisStatus.js";
 import {
   ATTENTION_REASON,
   ATTENTION_REASON_LABELS,
@@ -43,6 +43,8 @@ export function buildReadyToRegisterWhere(kind) {
   const registrations = isDefence ? "thesisDefences" : "thesisSeminars";
   return {
     status: THESIS_STATUS.RESEARCH,
+    // A student on leave cannot register.
+    student: { status: { not: STUDENT_STATUS.ON_LEAVE } },
     AND: [
       { thesisSupervisors: { every: { OR: [{ status: { not: "active" } }, { [readyFlag]: true }] } } },
       { thesisSupervisors: { some: { status: "active", [readyFlag]: true } } },

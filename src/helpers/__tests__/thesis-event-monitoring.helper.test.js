@@ -226,7 +226,7 @@ describe("Perlu Perhatian", () => {
 
 describe("Siap Mendaftar", () => {
   const supervisor = (overrides = {}) => ({ status: "active", seminarReady: false, defenceReady: false, ...overrides });
-  const thesis = (overrides = {}) => ({ status: "research", thesisSupervisors: [], thesisSeminars: [], thesisDefences: [], ...overrides });
+  const thesis = (overrides = {}) => ({ status: "research", student: { status: "active" }, thesisSupervisors: [], thesisSeminars: [], thesisDefences: [], ...overrides });
   const ready = (kind, row) => matches(row, buildReadyToRegisterWhere(kind));
 
   it("needs every active supervisor to have approved, and at least one of them", () => {
@@ -265,8 +265,10 @@ describe("Siap Mendaftar", () => {
 
   it("only lists theses in Penelitian", () => {
     const approved = [supervisor({ seminarReady: true })];
-    for (const status of ["proposal", "on_leave", "completed", "failed"]) {
+    for (const status of ["proposal", "completed", "failed"]) {
       expect(ready("seminar", thesis({ status, thesisSupervisors: approved }))).toBe(false);
     }
+    // A student on leave is not ready to register.
+    expect(ready("seminar", thesis({ student: { status: "bss" }, thesisSupervisors: approved }))).toBe(false);
   });
 });

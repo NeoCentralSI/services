@@ -1,7 +1,7 @@
 import { readFile } from "fs/promises";
 import { join, dirname } from "path";
 import { fileURLToPath } from "url";
-import { PDFDocument, StandardFonts, rgb } from "pdf-lib";
+import { PDFDocument, StandardFonts, rgb, degrees } from "pdf-lib";
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 // Official "Formulir TA-04" template (Penugasan Dosen Pembimbing Tugas Akhir), shipped with src.
@@ -636,7 +636,7 @@ function drawBulletBlock(page, text, topY, regularFont) {
   return topY + height + FLOW_PAGE.bulletGap;
 }
 
-function drawSignatureBlockAt(page, startTopY, dateGenerated, kadepName, kadepNip, regularFont, boldFont) {
+function drawSignatureBlockAt(page, startTopY, dateGenerated, kadepName, kadepNip, regularFont, boldFont, preview, logo, verification = null) {
   const layout = {
     pengesahanTitleBox: {
       x0: FLOW_PAGE.left,
@@ -726,6 +726,25 @@ function drawSignatureBlockAt(page, startTopY, dateGenerated, kadepName, kadepNi
     lineHeightMultiplier: 1.0,
   });
 
+  if (preview) {
+    drawTextAtTop(page, "(belum diterbitkan)", 365, startTopY + 150, regularFont, 11);
+  } else if (verification?.qr) {
+    // An issued version: the verification QR alone takes the place of the university logo,
+    // with the NeoCentral logo on a white patch in its middle (about 20% of its width).
+    const size = 80;
+    const x = 425 - size / 2;
+    const y = page.getHeight() - startTopY - 117 - size;
+    page.drawImage(verification.qr, { x, y, width: size, height: size });
+    if (verification.centerLogo) {
+      const box = size * 0.22;
+      page.drawRectangle({ x: x + (size - box) / 2, y: y + (size - box) / 2, width: box, height: box, color: rgb(1, 1, 1) });
+      const fit = verification.centerLogo.scaleToFit(size * 0.18, size * 0.18);
+      page.drawImage(verification.centerLogo, { x: x + (size - fit.width) / 2, y: y + (size - fit.height) / 2, ...fit });
+    }
+  } else if (logo) {
+    const dimensions = logo.scaleToFit(65, 65);
+    page.drawImage(logo, { x: 425 - dimensions.width / 2, y: page.getHeight() - startTopY - 190, ...dimensions });
+  }
   return startTopY + FLOW_PAGE.signatureHeight;
 }
 
@@ -873,6 +892,9 @@ function drawKetentuanPage(page, planPage, {
   kadepNip,
   regularFont,
   boldFont,
+  preview,
+  logo,
+  verification,
 }) {
   let cursor = planPage.startTop ?? FLOW_PAGE.top;
   if (planPage.section === SECTION.B) {
@@ -891,7 +913,7 @@ function drawKetentuanPage(page, planPage, {
     } else {
       cursor = planPage.startTop ?? FLOW_PAGE.top;
     }
-    drawSignatureBlockAt(page, cursor, dateGenerated, kadepName, kadepNip, regularFont, boldFont);
+    drawSignatureBlockAt(page, cursor, dateGenerated, kadepName, kadepNip, regularFont, boldFont, preview, logo, verification);
   }
 }
 
@@ -940,7 +962,12 @@ export async function generateSupervisorAssignmentPdf(opts) {
 
   const aChunks = chunkEntriesForSectionA(entries);
   let aChunkIndex = 0;
-  const flowOptions = { dateGenerated, kadepName, kadepNip, regularFont, boldFont };
+  // An issued version carries the verification QR (PNG bytes and its URL); the logo is the fallback.
+  const qr = !opts.preview && opts.verification?.qrPng ? await outputDoc.embedPng(opts.verification.qrPng) : null;
+  const logo = opts.preview || qr ? null : await outputDoc.embedPng(await readFile(join(__dirname, "..", "assets", "unand-logo.png")));
+  const centerLogo = qr ? await outputDoc.embedPng(await readFile(join(__dirname, "..", "assets", "neocentral-logo.png"))) : null;
+  const verification = qr ? { qr, centerLogo } : null;
+  const flowOptions = { dateGenerated, kadepName, kadepNip, regularFont, boldFont, preview: opts.preview, logo, verification };
 
   for (const planPage of plan.pages) {
     if (planPage.section === SECTION.A) {
@@ -964,6 +991,14 @@ export async function generateSupervisorAssignmentPdf(opts) {
     drawKetentuanPage(contentPage, planPage, flowOptions);
   }
 
+  if (opts.preview) {
+    for (const page of outputDoc.getPages()) {
+      page.drawText("PRATINJAU — BUKAN DOKUMEN RESMI", {
+        x: 70, y: page.getHeight() * 0.42, size: 23, font: boldFont,
+        color: rgb(0.6, 0.6, 0.6), opacity: 0.3, rotate: degrees(30),
+      });
+    }
+  }
   const pdfBytes = await outputDoc.save();
   return Buffer.from(pdfBytes);
 }

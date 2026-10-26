@@ -9,17 +9,12 @@ import { THESIS_STATUS_LABELS } from "./thesisLabels.js";
 export const THESIS_STATUS = {
   PROPOSAL: "proposal",
   RESEARCH: "research",
-  ON_LEAVE: "on_leave",
   COMPLETED: "completed",
   FAILED: "failed",
 };
 
 /** TA yang belum berakhir. */
-export const OPEN_THESIS_STATUSES = [
-  THESIS_STATUS.PROPOSAL,
-  THESIS_STATUS.RESEARCH,
-  THESIS_STATUS.ON_LEAVE,
-];
+export const OPEN_THESIS_STATUSES = [THESIS_STATUS.PROPOSAL, THESIS_STATUS.RESEARCH];
 
 /**
  * "TA mahasiswa saat ini" for pages that must still find a finished thesis
@@ -29,7 +24,6 @@ export const OPEN_THESIS_STATUSES = [
 export const CURRENT_THESIS_STATUSES = [
   THESIS_STATUS.PROPOSAL,
   THESIS_STATUS.RESEARCH,
-  THESIS_STATUS.ON_LEAVE,
   THESIS_STATUS.COMPLETED,
 ];
 
@@ -42,7 +36,6 @@ export const CLOSED_THESIS_STATUSES = [THESIS_STATUS.COMPLETED, THESIS_STATUS.FA
 /** TA yang sudah melewati fase proposal, apa pun akhirnya (riwayat, arsip). */
 export const POST_PROPOSAL_THESIS_STATUSES = [
   THESIS_STATUS.RESEARCH,
-  THESIS_STATUS.ON_LEAVE,
   THESIS_STATUS.COMPLETED,
   THESIS_STATUS.FAILED,
 ];
@@ -56,7 +49,7 @@ export const THESIS_PHASE = {
   RESEARCH: "research",
 };
 
-/** Alasan penghentian TA (`ThesisTerminationReason`); fiturnya belum dibuat. */
+/** Alasan penghentian TA (`ThesisTerminationReason`). */
 export const THESIS_TERMINATION_REASON = {
   SUPERVISION_EVALUATION: "supervision_evaluation",
   WITHDRAWN: "withdrawn",
@@ -71,14 +64,15 @@ export const THESIS_TERMINATION_REASON = {
  */
 export const TA_PHASE = Object.freeze({ phase: THESIS_PHASE.RESEARCH });
 
-/** Fase berjalan untuk tampilan (tidak melempar): BSS dan TA yang sudah berakhir dibaca `research`. */
+/** Fase berjalan untuk tampilan (tidak melempar): TA yang sudah berakhir dibaca `research`. */
 export function currentPhaseOf(status) {
   return status === THESIS_STATUS.PROPOSAL ? THESIS_PHASE.PROPOSAL : THESIS_PHASE.RESEARCH;
 }
 
 /**
  * Fase sesi/milestone baru ditetapkan server dari status TA.
- * `on_leave`, `completed`, `failed`: sesi dan milestone baru tidak boleh dibuat.
+ * `completed`, `failed`: sesi dan milestone baru tidak boleh dibuat. TA yang dijeda karena
+ * cuti diperiksa terpisah (`isThesisOnLeave`).
  */
 export function phaseForThesisStatus(status) {
   if (status === THESIS_STATUS.PROPOSAL) return THESIS_PHASE.PROPOSAL;
@@ -88,6 +82,30 @@ export function phaseForThesisStatus(status) {
   );
   err.statusCode = 400;
   throw err;
+}
+
+/**
+ * Status mahasiswa (`StudentStatus`, kolom `students.student_status`). Satu-satunya sumber
+ * cuti dan berhenti studi; status TA mengikutinya lewat `applyStudentStatusChange`.
+ */
+export const STUDENT_STATUS = Object.freeze({
+  ACTIVE: "active",
+  ON_LEAVE: "bss",
+  GRADUATED: "lulus",
+  WITHDRAWN: "mengundurkan_diri",
+  DROPPED_OUT: "dropout",
+});
+
+/**
+ * TA dijeda karena mahasiswanya cuti: TA belum berakhir dan cutinya sedang berjalan.
+ * Membaca `student.status` bila ikut dipilih; bila tidak, `leaveStartedAt`, yang diisi
+ * dalam transaksi yang sama dengan perubahan status mahasiswa.
+ */
+export function isThesisOnLeave(thesis) {
+  if (!thesis || !OPEN_THESIS_STATUSES.includes(thesis.status)) return false;
+  const studentStatus = thesis.student?.status;
+  if (studentStatus !== undefined) return studentStatus === STUDENT_STATUS.ON_LEAVE;
+  return thesis.leaveStartedAt != null;
 }
 
 export default THESIS_STATUS;

@@ -4,7 +4,7 @@
  * Real service + lifecycle rules (thesisLifecycle.service) against the in-memory Prisma
  * stand-in, so the rules are checked on real rows:
  * one open thesis per student, allowed status transitions, `failed` (reason, released supervisors,
- * cancelled open sessions), `on_leave` (previous status + start date, return only to it),
+ * cancelled open sessions), leave driven by the student status (`applyStudentStatusChange`),
  * activity level derived (never an input), Pembimbing 1/2 rules, replaced supervisors kept as "released",
  * and per-row import errors.
  */
@@ -23,7 +23,8 @@ const {
   importThesesMasterData,
   parseThesisStatusCell,
 } = await import("../../../services/masterDataTa.service.js");
-const { THESIS_STATUS_TRANSITIONS, SYSTEM_CANCEL_REASON } = await import("../../../services/thesisLifecycle.service.js");
+const { THESIS_STATUS_TRANSITIONS, SYSTEM_CANCEL_REASON, applyStudentStatusChange } = await import("../../../services/thesisLifecycle.service.js");
+const { prismaFake } = await import("./helpers/fakePrisma.js");
 
 const lecturer = (id, fullName) => ({ id, user: { id: `u-${id}`, fullName } });
 
@@ -37,8 +38,8 @@ function buildState() {
     thesisTopic: [{ id: "topic-ml", name: "Machine Learning" }],
     lecturer: [lecturer("L1", "Dr. Satu"), lecturer("L2", "Dr. Dua"), lecturer("L3", "Dr. Tiga")],
     student: [
-      { id: "S1", user: { identityNumber: "2211520001", fullName: "Mahasiswa Satu" } },
-      { id: "S2", user: { identityNumber: "2211520002", fullName: "Mahasiswa Dua" } },
+      { id: "S1", status: "active", user: { identityNumber: "2211520001", fullName: "Mahasiswa Satu" } },
+      { id: "S2", status: "active", user: { identityNumber: "2211520002", fullName: "Mahasiswa Dua" } },
       { id: "S3", user: { identityNumber: "2211520003", fullName: "Mahasiswa Tiga" } },
     ],
     thesis: [
@@ -129,7 +130,7 @@ describe("tambah TA", () => {
     await expect(createThesisMasterData({ studentId: "S2", pembimbing1: "L1", thesisTopicId: "nope" })).rejects.toThrow(/Topik/);
   });
 
-  it("TA baru tidak bisa langsung on_leave; failed butuh alasan", async () => {
+  it("cuti bukan status TA; failed butuh alasan", async () => {
     await expect(createThesisMasterData({ studentId: "S2", pembimbing1: "L1", status: "on_leave" })).rejects.toMatchObject({ statusCode: 400 });
     await expect(createThesisMasterData({ studentId: "S2", pembimbing1: "L1", status: "failed" })).rejects.toThrow(/Alasan penghentian/);
   });
@@ -144,9 +145,8 @@ describe("tambah TA", () => {
 describe("ubah status", () => {
   it("tabel transisi status", () => {
     expect(THESIS_STATUS_TRANSITIONS).toEqual({
-      proposal: ["research", "on_leave", "failed"],
-      research: ["on_leave", "completed", "failed"],
-      on_leave: ["proposal", "research", "failed"],
+      proposal: ["research", "failed"],
+      research: ["completed", "failed"],
       completed: [],
       failed: [],
     });
@@ -191,18 +191,9 @@ describe("ubah status", () => {
     expect(thesisRow("T1").terminationReason).toBe("withdrawn");
   });
 
-  it("ke on_leave mencatat status sebelumnya dan tanggal mulai; kembali hanya ke status itu", async () => {
-    await updateThesisMasterData("T1", { status: "on_leave" });
-    expect(thesisRow("T1")).toMatchObject({ status: "on_leave", statusBeforeLeave: "research" });
-    expect(thesisRow("T1").leaveStartedAt).toBeInstanceOf(Date);
-    // pembimbing tetap melekat
-    expect(supRows("T1").every((s) => s.status === "active")).toBe(true);
-
-    await expect(updateThesisMasterData("T1", { status: "proposal" })).rejects.toThrow(/status sebelumnya/);
-    await expect(updateThesisMasterData("T1", { status: "completed" })).rejects.toMatchObject({ statusCode: 400 });
-
-    await updateThesisMasterData("T1", { status: "research" });
-    expect(thesisRow("T1")).toMatchObject({ status: "research", statusBeforeLeave: null, leaveStartedAt: null });
+  it("Data TA tidak lagi dapat memilih status cuti", async () => {
+    await expect(updateThesisMasterData("T1", { status: "on_leave" })).rejects.toMatchObject({ statusCode: 400 });
+    expect(thesisRow("T1").status).toBe("research");
   });
 
   it("startDate bisa diubah lewat data master; rating dari input diabaikan", async () => {
@@ -211,12 +202,67 @@ describe("ubah status", () => {
     expect(thesisRow("T1").rating).toBe("SLOW"); // untouched fixture value, never written
   });
 
-  it("kembali dari BSS menambah lama cuti ke totalLeaveDays", async () => {
-    const leaveStartedAt = new Date(Date.now() - 30 * 24 * 60 * 60 * 1000 - 60_000);
-    Object.assign(thesisRow("T1"), { status: "on_leave", statusBeforeLeave: "research", leaveStartedAt });
-    await updateThesisMasterData("T1", { status: "research" });
-    expect(thesisRow("T1")).toMatchObject({ status: "research", leaveStartedAt: null });
-    expect(thesisRow("T1").totalLeaveDays).toEqual({ increment: 30 });
+  it("TA baru untuk mahasiswa yang cuti langsung dijeda; mahasiswa drop out tidak bisa punya TA berjalan", async () => {
+    store.state.student.find((x) => x.id === "S2").status = "bss";
+    const thesis = await createThesisMasterData({ studentId: "S2", pembimbing1: "L1" });
+    expect(thesis.leaveStartedAt).toBeInstanceOf(Date);
+    store.state.student.find((x) => x.id === "S2").status = "dropout";
+    thesisRow(thesis.id).status = "failed";
+    await expect(createThesisMasterData({ studentId: "S2", pembimbing1: "L1" })).rejects.toThrow(/Drop Out/);
+  });
+});
+
+describe("status mahasiswa menggerakkan TA", () => {
+  const studentRow = (id) => store.state.student.find((x) => x.id === id);
+  const DAY = 24 * 60 * 60 * 1000;
+
+  it("Aktif -> Cuti: TA tetap research, dijeda sejak sekarang, pembimbing tetap; tercatat di log", async () => {
+    const result = await applyStudentStatusChange(prismaFake, "S1", "bss", { actorUserId: "admin" });
+    expect(result).toMatchObject({ changed: true, fromStatus: "active", toStatus: "bss", thesisId: "T1", effect: "paused" });
+    expect(studentRow("S1").status).toBe("bss");
+    expect(thesisRow("T1").status).toBe("research");
+    expect(thesisRow("T1").leaveStartedAt).toBeInstanceOf(Date);
+    expect(supRows("T1").every((x) => x.status === "active")).toBe(true);
+    const audit = store.state.auditLog.find((a) => a.action === "STUDENT_STATUS_CHANGED");
+    expect(audit).toMatchObject({ entity: "STUDENT", entityId: "S1", userId: "admin" });
+    expect(audit.changes).toMatchObject({ oldValues: { status: "active" }, newValues: { status: "bss" }, metadata: { thesisEffect: "paused" } });
+  });
+
+  it("Cuti -> Aktif: hari cuti ditambahkan ke totalLeaveDays dan waktu mulai dikosongkan", async () => {
+    studentRow("S1").status = "bss";
+    thesisRow("T1").leaveStartedAt = new Date(Date.now() - 30 * DAY - 60_000);
+    const result = await applyStudentStatusChange(prismaFake, "S1", "active");
+    expect(result.effect).toBe("resumed");
+    expect(thesisRow("T1")).toMatchObject({ status: "research", leaveStartedAt: null, totalLeaveDays: { increment: 30 } });
+  });
+
+  it("Drop Out: TA gagal (dropped_out), pembimbing dilepas, sesi terbuka dan pengajuan perubahan ditutup", async () => {
+    store.state.thesisChangeRequest = [{ id: "cr-1", thesisId: "T1", status: "pending" }];
+    store.state.thesisGuidanceEvaluation = [{ id: "ev-1", thesisId: "T1", status: "pending" }];
+    const result = await applyStudentStatusChange(prismaFake, "S1", "dropout", { actorUserId: "admin" });
+    expect(result.effect).toBe("terminated");
+    expect(thesisRow("T1")).toMatchObject({ status: "failed", terminationReason: "dropped_out", terminatedByUserId: "admin" });
+    expect(supRows("T1").every((x) => x.status === "released")).toBe(true);
+    expect(guidance("g-req")).toMatchObject({ status: "cancelled", cancelledBy: "system" });
+    expect(store.state.thesisChangeRequest[0].status).toBe("cancelled");
+    expect(store.state.thesisGuidanceEvaluation[0].status).toBe("rejected");
+  });
+
+  it("Mengundurkan Diri selama cuti: TA gagal (withdrawn) dan cutinya ditutup", async () => {
+    studentRow("S1").status = "bss";
+    thesisRow("T1").leaveStartedAt = new Date(Date.now() - 10 * DAY - 60_000);
+    await applyStudentStatusChange(prismaFake, "S1", "mengundurkan_diri");
+    expect(thesisRow("T1")).toMatchObject({ status: "failed", terminationReason: "withdrawn", leaveStartedAt: null, totalLeaveDays: { increment: 10 } });
+  });
+
+  it("Lulus tidak mengubah TA; status sama tidak menulis apa pun; status tak dikenal ditolak", async () => {
+    await applyStudentStatusChange(prismaFake, "S1", "lulus");
+    expect(thesisRow("T1").status).toBe("research");
+    const before = callsTo("student", "update").length;
+    const same = await applyStudentStatusChange(prismaFake, "S1", "lulus");
+    expect(same.changed).toBe(false);
+    expect(callsTo("student", "update")).toHaveLength(before);
+    await expect(applyStudentStatusChange(prismaFake, "S1", "cuti")).rejects.toMatchObject({ statusCode: 400 });
   });
 });
 
@@ -275,9 +321,9 @@ describe("impor", () => {
 
 describe("import cell parsing", () => {
   it("parses status from enum value, Indonesian label, or legacy name", () => {
-    expect(parseThesisStatusCell("on_leave")).toBe("on_leave");
+    expect(parseThesisStatusCell("on_leave")).toBeNull();
     expect(parseThesisStatusCell("Penelitian")).toBe("research");
-    expect(parseThesisStatusCell("Berhenti Studi Sementara (BSS)")).toBe("on_leave");
+    expect(parseThesisStatusCell("bss")).toBeNull();
     expect(parseThesisStatusCell("Lulus")).toBe("completed");
     expect(parseThesisStatusCell("-")).toBeNull();
     expect(parseThesisStatusCell("entah")).toBeNull();

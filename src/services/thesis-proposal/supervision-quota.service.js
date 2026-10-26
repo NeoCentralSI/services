@@ -5,97 +5,63 @@ import {
   SUPERVISION_LOAD_LEVEL,
 } from "../../constants/supervisionQuota.js";
 import * as repo from "../../repositories/thesis-proposal/supervision-quota.repository.js";
-import { THESIS_STATUS } from "../../constants/thesisStatus.js";
+import { THESIS_STATUS, isThesisOnLeave } from "../../constants/thesisStatus.js";
 import { BadRequestError, NotFoundError } from "../../utils/errors.js";
 import { formatAcademicYearLabel, resolveOperationalAcademicYear } from "../../helpers/academicYear.helper.js";
 import { AUDIT_ACTIONS, ENTITY_TYPES, logAudit } from "../auditLog.service.js";
 
-/**
- * Limits that apply in an academic year (10.1): the period limits when set, else the general
- * limits, else the defaults.
- */
+/** Semester intake quota can override the default; total capacity is always general. */
 export async function getApplicableLimits(academicYearId, { client = prisma } = {}) {
-  const period = academicYearId ? await repo.findPeriodQuota(academicYearId, client) : null;
-  if (period) {
-    return { softLimit: period.softLimit, hardLimit: period.hardLimit, source: SUPERVISION_LIMIT_SOURCE.PERIOD };
-  }
-  const general = await repo.findGeneralQuota(client);
-  if (general) {
-    return { softLimit: general.softLimit, hardLimit: general.hardLimit, source: SUPERVISION_LIMIT_SOURCE.GENERAL };
-  }
-  return { ...DEFAULT_SUPERVISION_LIMITS, source: SUPERVISION_LIMIT_SOURCE.DEFAULT };
-}
-
-/** Load level of a count against limits. */
-export function classifyLoad(activeCount, limits) {
-  if (activeCount >= limits.hardLimit) return SUPERVISION_LOAD_LEVEL.FULL;
-  if (activeCount >= limits.softLimit) return SUPERVISION_LOAD_LEVEL.NEAR_LIMIT;
-  return SUPERVISION_LOAD_LEVEL.AVAILABLE;
-}
-
-/** True when one more accepted student would put the lecturer over the hard limit. */
-export function isAtHardLimit(activeCount, limits) {
-  return activeCount >= limits.hardLimit;
-}
-
-/**
- * Load of one lecturer against the limits of an academic year.
- * @returns {Promise<{ lecturerId, activeCount, softLimit, hardLimit, limitSource, level }>}
- */
-export async function getLecturerLoad(lecturerId, academicYearId, { client = prisma } = {}) {
-  const [limits, counts] = await Promise.all([
-    getApplicableLimits(academicYearId, { client }),
-    repo.countActiveSupervisions([lecturerId], client),
+  const [general, period] = await Promise.all([
+    repo.findGeneralQuota(client),
+    academicYearId ? repo.findPeriodQuota(academicYearId, client) : null,
   ]);
-  const activeCount = counts.get(lecturerId) ?? 0;
   return {
-    lecturerId,
-    activeCount,
-    softLimit: limits.softLimit,
-    hardLimit: limits.hardLimit,
-    limitSource: limits.source,
-    level: classifyLoad(activeCount, limits),
+    totalLimit: general?.totalLimit ?? DEFAULT_SUPERVISION_LIMITS.totalLimit,
+    semesterQuota: period?.semesterQuota ?? general?.semesterQuota ?? DEFAULT_SUPERVISION_LIMITS.semesterQuota,
+    source: period ? SUPERVISION_LIMIT_SOURCE.PERIOD : general ? SUPERVISION_LIMIT_SOURCE.GENERAL : SUPERVISION_LIMIT_SOURCE.DEFAULT,
   };
 }
 
-/**
- * Loads of several lecturers (or every lecturer when `lecturerIds` is null) against the
- * limits of an academic year.
- * @returns {Promise<Map<string, { activeCount, softLimit, hardLimit, limitSource, level }>>}
- */
+/** A new acceptance exceeds a limit when the existing count has reached it. */
+export function isAtCapacity(activeCount, acceptedCount, limits) {
+  return activeCount >= limits.totalLimit || acceptedCount >= limits.semesterQuota;
+}
+
+export function classifyLoad(activeCount, limits, acceptedCount = 0) {
+  if (isAtCapacity(activeCount, acceptedCount, limits)) return SUPERVISION_LOAD_LEVEL.FULL;
+  if (activeCount === limits.totalLimit - 1 || acceptedCount === limits.semesterQuota - 1) return SUPERVISION_LOAD_LEVEL.NEAR_LIMIT;
+  return SUPERVISION_LOAD_LEVEL.AVAILABLE;
+}
+
+export async function getLecturerLoad(lecturerId, academicYearId, options = {}) {
+  return { lecturerId, ...(await getLecturerLoads([lecturerId], academicYearId, options)).get(lecturerId) };
+}
+
 export async function getLecturerLoads(lecturerIds, academicYearId, { client = prisma } = {}) {
-  const [limits, counts] = await Promise.all([
+  const [limits, counts, intake] = await Promise.all([
     getApplicableLimits(academicYearId, { client }),
     repo.countActiveSupervisions(lecturerIds, client),
+    repo.countSemesterIntake(academicYearId, client),
   ]);
-  const ids = lecturerIds ?? [...counts.keys()];
-  return new Map(
-    ids.map((id) => {
-      const activeCount = counts.get(id) ?? 0;
-      return [
-        id,
-        {
-          activeCount,
-          softLimit: limits.softLimit,
-          hardLimit: limits.hardLimit,
-          limitSource: limits.source,
-          level: classifyLoad(activeCount, limits),
-        },
-      ];
-    }),
-  );
+  const ids = lecturerIds ?? [...new Set([...counts.keys(), ...intake.keys()])];
+  return new Map(ids.map((id) => {
+    const activeCount = counts.get(id) ?? 0;
+    const { acceptedCount = 0, pendingCount = 0 } = intake.get(id) ?? {};
+    return [id, { activeCount, acceptedCount, pendingCount, totalLimit: limits.totalLimit,
+      semesterQuota: limits.semesterQuota, limitSource: limits.source,
+      level: classifyLoad(activeCount, limits, acceptedCount) }];
+  }));
 }
 
 // ── Load screen (Kadep/Sekdep/Admin) ──────────────────────────────────────────────────
 
-/** Validate a pair of limits: whole numbers, soft at most hard. */
-export function assertLimits({ softLimit, hardLimit }) {
-  for (const [label, value] of [["Batas lunak", softLimit], ["Batas keras", hardLimit]]) {
-    if (!Number.isInteger(value) || value < 1 || value > 100) {
-      throw new BadRequestError(`${label} harus bilangan bulat 1–100.`);
-    }
+export function assertLimits(values) {
+  for (const [field, label] of [["semesterQuota", "Kuota semester"], ["totalLimit", "Batas total"]]) {
+    if (!(field in values)) continue;
+    const value = values[field];
+    if (!Number.isInteger(value) || value < 1 || value > 100) throw new BadRequestError(`${label} harus bilangan bulat 1–100.`);
   }
-  if (softLimit > hardLimit) throw new BadRequestError("Batas lunak tidak boleh lebih besar dari batas keras.");
 }
 
 /**
@@ -108,28 +74,31 @@ export async function getLoadOverview(academicYearId = null, { client = prisma }
     ? await client.academicYear.findUnique({ where: { id: academicYearId } })
     : await resolveOperationalAcademicYear(client);
   if (academicYearId && !year) throw new NotFoundError("Tahun ajaran tidak ditemukan.");
-  const [general, period, applicable, lecturers, rows] = await Promise.all([
+  const [general, period, applicable, lecturers, rows, intake, operational] = await Promise.all([
     repo.findGeneralQuota(client),
     year ? repo.findPeriodQuota(year.id, client) : null,
     getApplicableLimits(year?.id ?? null, { client }),
     repo.findLecturersForLoadScreen(client),
     repo.findActiveSupervisionRows(null, client),
+    repo.countSemesterIntake(year?.id, client),
+    resolveOperationalAcademicYear(client),
   ]);
   const breakdown = new Map();
   for (const row of rows) {
     const entry = breakdown.get(row.lecturerId) ?? { total: 0, waitingAssignment: 0, proposal: 0, research: 0, onLeave: 0, asSupervisor2: 0 };
     entry.total += 1;
     if (row.role?.name === "Pembimbing 2") entry.asSupervisor2 += 1;
-    if (row.thesis.status === THESIS_STATUS.PROPOSAL) {
+    // A thesis paused by the student's leave is counted under "BSS", not under its phase.
+    if (isThesisOnLeave(row.thesis)) entry.onLeave += 1;
+    else if (row.thesis.status === THESIS_STATUS.PROPOSAL) {
       if (row.thesis.supervisorAssignedAt) entry.proposal += 1;
       else entry.waitingAssignment += 1;
-    } else if (row.thesis.status === THESIS_STATUS.RESEARCH) entry.research += 1;
-    else entry.onLeave += 1;
+    } else entry.research += 1;
     breakdown.set(row.lecturerId, entry);
   }
-  const limit = (row) => (row ? { softLimit: row.softLimit, hardLimit: row.hardLimit, updatedAt: row.updatedAt } : null);
+  const limit = (row) => (row ? { semesterQuota: row.semesterQuota, totalLimit: row.totalLimit, updatedAt: row.updatedAt } : null);
   return {
-    academicYear: year ? { id: year.id, semester: year.semester, year: year.year, label: formatAcademicYearLabel(year) } : null,
+    academicYear: year ? { id: year.id, semester: year.semester, year: year.year, label: formatAcademicYearLabel(year), isActive: year.id === operational?.id } : null,
     general: limit(general),
     period: limit(period),
     applicable,
@@ -142,8 +111,10 @@ export async function getLoadOverview(academicYearId = null, { client = prisma }
         scienceGroup: lecturer.scienceGroup ?? null,
         acceptingRequests: lecturer.acceptingRequests !== false,
         activeCount: counts.total,
+        acceptedCount: intake.get(lecturer.id)?.acceptedCount ?? 0,
+        pendingCount: intake.get(lecturer.id)?.pendingCount ?? 0,
         breakdown: counts,
-        level: classifyLoad(counts.total, applicable),
+        level: classifyLoad(counts.total, applicable, intake.get(lecturer.id)?.acceptedCount ?? 0),
       };
     }),
   };
@@ -161,29 +132,36 @@ async function auditLimit(actorUserId, entityId, oldValues, newValues, metadata)
   });
 }
 
-export async function setGeneralLimits({ softLimit, hardLimit }, actorUserId) {
-  assertLimits({ softLimit, hardLimit });
+export async function setGeneralLimits({ semesterQuota, totalLimit }, actorUserId) {
+  assertLimits({ semesterQuota, totalLimit });
   const existing = await repo.findGeneralQuota();
-  const row = await repo.upsertGeneralQuota(existing?.id ?? null, { softLimit, hardLimit, updatedByUserId: actorUserId });
-  await auditLimit(actorUserId, row.id, existing ? { softLimit: existing.softLimit, hardLimit: existing.hardLimit } : null, { softLimit, hardLimit }, { scope: "general" });
+  const row = await repo.upsertGeneralQuota(existing?.id ?? null, { semesterQuota, totalLimit, updatedByUserId: actorUserId });
+  await auditLimit(actorUserId, row.id, existing ? { semesterQuota: existing.semesterQuota, totalLimit: existing.totalLimit } : null, { semesterQuota, totalLimit }, { scope: "general" });
   return getLoadOverview();
 }
 
-export async function setPeriodLimits(academicYearId, { softLimit, hardLimit }, actorUserId) {
-  assertLimits({ softLimit, hardLimit });
+export async function setPeriodLimits(academicYearId, { semesterQuota }, actorUserId) {
+  assertLimits({ semesterQuota });
+  await assertOperationalPeriod(academicYearId);
   const year = await prisma.academicYear.findUnique({ where: { id: academicYearId } });
   if (!year) throw new NotFoundError("Tahun ajaran tidak ditemukan.");
   const existing = await repo.findPeriodQuota(academicYearId);
-  const row = await repo.upsertPeriodQuota(academicYearId, { softLimit, hardLimit, updatedByUserId: actorUserId });
-  await auditLimit(actorUserId, row.id, existing ? { softLimit: existing.softLimit, hardLimit: existing.hardLimit } : null, { softLimit, hardLimit }, { scope: "period", academicYearId });
+  const row = await repo.upsertPeriodQuota(academicYearId, { semesterQuota, updatedByUserId: actorUserId });
+  await auditLimit(actorUserId, row.id, existing ? { semesterQuota: existing.semesterQuota, totalLimit: existing.totalLimit } : null, { semesterQuota }, { scope: "period", academicYearId });
   return getLoadOverview(academicYearId);
 }
 
+async function assertOperationalPeriod(academicYearId) {
+  const year = await resolveOperationalAcademicYear();
+  if (year?.id !== academicYearId) throw new BadRequestError("Kuota semester hanya dapat diubah untuk semester aktif.");
+}
+
 export async function clearPeriodLimits(academicYearId, actorUserId) {
+  await assertOperationalPeriod(academicYearId);
   const existing = await repo.findPeriodQuota(academicYearId);
   if (!existing) throw new NotFoundError("Batas periode ini belum diatur.");
   await repo.deletePeriodQuota(academicYearId);
-  await auditLimit(actorUserId, existing.id, { softLimit: existing.softLimit, hardLimit: existing.hardLimit }, null, { scope: "period", academicYearId });
+  await auditLimit(actorUserId, existing.id, { semesterQuota: existing.semesterQuota, totalLimit: existing.totalLimit }, null, { scope: "period", academicYearId });
   return getLoadOverview(academicYearId);
 }
 

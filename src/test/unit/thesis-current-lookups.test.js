@@ -37,7 +37,7 @@ beforeEach(() => {
 
 describe("CURRENT_THESIS_STATUSES", () => {
   it("is every status but Gagal: the latest thesis that has not failed, a Selesai one included", () => {
-    expect(CURRENT_THESIS_STATUSES).toEqual(["proposal", "research", "on_leave", "completed"]);
+    expect(CURRENT_THESIS_STATUSES).toEqual(["proposal", "research", "completed"]);
     expect(OPEN_THESIS_STATUSES).not.toContain("completed");
   });
 });

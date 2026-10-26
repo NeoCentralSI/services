@@ -51,11 +51,12 @@ const supervisor = (userId, role, flags = {}) => ({
   role: { name: role },
 });
 
-function thesis({ status = "research", supervisors = [supervisor(P1, "Pembimbing 1"), supervisor(P2, "Pembimbing 2")], seminars = [] } = {}) {
+function thesis({ status = "research", supervisors = [supervisor(P1, "Pembimbing 1"), supervisor(P2, "Pembimbing 2")], seminars = [], leaveStartedAt = null } = {}) {
   return {
     id: "t1",
     title: "Judul TA",
     status,
+    leaveStartedAt,
     studentId: STUDENT,
     student: { id: STUDENT, user: { id: STUDENT, fullName: "Mahasiswa Uji", identityNumber: "2211", email: "m@x.test" } },
     thesisSupervisors: supervisors,
@@ -164,16 +165,21 @@ describe("seminar readiness", () => {
     await expect(service.requestSeminarApproval("t1", STUDENT)).rejects.toMatchObject({ statusCode: 400 });
     await expect(service.requestSeminarApproval("t1", P1)).rejects.toMatchObject({ statusCode: 403 });
 
-    useThesis(thesis({ status: "on_leave" }));
+    // The student is on leave: the thesis stays in research, paused.
+    useThesis(thesis({ leaveStartedAt: new Date() }));
     await expect(service.requestSeminarApproval("t1", STUDENT)).rejects.toMatchObject({
       statusCode: 400,
-      message: expect.stringContaining("Berhenti Studi Sementara (BSS)"),
+      message: expect.stringContaining("selama cuti"),
     });
     expect(notif.createNotification).not.toHaveBeenCalled();
   });
 
-  it("approve: rejected for a thesis that is not in research", async () => {
-    useThesis(thesis({ status: "on_leave" }));
+  it("approve: rejected for a thesis that is not in research, and during a leave", async () => {
+    useThesis(thesis({ leaveStartedAt: new Date() }));
+    useSeminarNumbers();
+    await expect(service.approveSeminarReadiness("t1", P1)).rejects.toMatchObject({ statusCode: 400 });
+
+    useThesis(thesis({ status: "proposal" }));
     useSeminarNumbers();
 
     await expect(service.approveSeminarReadiness("t1", P1)).rejects.toMatchObject({ statusCode: 400 });

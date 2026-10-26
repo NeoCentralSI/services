@@ -194,7 +194,7 @@ async function seedUsers(roleMap) {
       fullName: "Ullya Mega Wahyuni, M.Kom",
       identityType: "NIP",
       identityNumber: "199011032019032008",
-      roles: [ROLES.GKM, ROLES.TIM_PENGELOLA_CPL, ROLES.PENGUJI, ROLES.PEMBIMBING_2],
+      roles: [ROLES.GKM, ROLES.PENGUJI, ROLES.PEMBIMBING_2],
       isLecturer: true,
     },
     {

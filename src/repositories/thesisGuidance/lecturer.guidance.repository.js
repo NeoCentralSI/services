@@ -7,6 +7,7 @@ import {
 	TA_PHASE,
 	CLOSED_THESIS_STATUSES,
 	currentPhaseOf,
+	isThesisOnLeave,
 } from "../../constants/thesisStatus.js";
 import { THESIS_PROGRESS_SELECT, summarizeThesisProgress } from "../../helpers/thesis-progress.helper.js";
 
@@ -18,8 +19,8 @@ const pickProgress = ({ activityLevel, lastActivityAt, daysSinceActivity, superv
 	supervisionClock,
 });
 
-/** TA fase TA yang sedang berjalan, termasuk yang ditangguhkan (BSS). */
-const RUNNING_TA_STATUSES = [THESIS_STATUS.RESEARCH, THESIS_STATUS.ON_LEAVE];
+/** TA fase TA yang sedang berjalan, termasuk yang dijeda karena mahasiswanya cuti. */
+const RUNNING_TA_STATUSES = [THESIS_STATUS.RESEARCH];
 
 /**
  * A thesis sent back to `proposal` by an approved guidance evaluation. Its supervisors
@@ -58,7 +59,7 @@ export function supervisorRelationState(relation, thesis) {
 
 // List students supervised by the lecturer via ThesisSupervisors (SUPERVISOR_1/2)
 /**
- * "Mahasiswa Bimbingan" filters. Default = active (research + on_leave). `proposal` lists
+ * "Mahasiswa Bimbingan" filters. Default = active (research, also during a leave). `proposal` lists
  * the proposal-phase students; one repeating its proposal stays under "Aktif".
  */
 export const MY_STUDENTS_FILTERS = Object.freeze({
@@ -166,6 +167,8 @@ export async function findMyStudents(lecturerId, roles, { filter = "active" } = 
 			// Derived when read: activity level and supervision clock
 			...pickProgress(summarizeThesisProgress(researchThesis, now)),
 			thesisStatus: p.thesis?.status ?? null,
+			// The student is on leave: the thesis is paused ("Cuti" badge).
+			isOnLeave: isThesisOnLeave(p.thesis),
 			studentId: sid,
 			studentUser: p.thesis.student.user,
 			role: p.role?.name || null,
@@ -184,6 +187,7 @@ export async function findMyStudents(lecturerId, roles, { filter = "active" } = 
 			// Read by the change rules of the row (thesis-change-request.service.js).
 			changeState: {
 				status: p.thesis?.status ?? null,
+				leaveStartedAt: p.thesis?.leaveStartedAt ?? null,
 				thesisSeminars: p.thesis?.thesisSeminars ?? [],
 				thesisDefences: p.thesis?.thesisDefences ?? [],
 				hasOpenRequest: (p.thesis?.thesisChangeRequests ?? []).length > 0,

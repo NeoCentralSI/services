@@ -47,7 +47,7 @@ export function findActiveSupervisionRows(lecturerIds = null, client = prisma) {
     select: {
       lecturerId: true,
       role: { select: { name: true } },
-      thesis: { select: { status: true, supervisorAssignedAt: true } },
+      thesis: { select: { status: true, supervisorAssignedAt: true, student: { select: { status: true } } } },
     },
   });
 }
@@ -69,7 +69,7 @@ export function findLecturersForLoadScreen(client = prisma) {
 export function upsertGeneralQuota(existingId, data, client = prisma) {
   return existingId
     ? client.supervisionQuota.update({ where: { id: existingId }, data })
-    : client.supervisionQuota.create({ data: { academicYearId: null, ...data } });
+    : client.supervisionQuota.create({ data: { id: "general", academicYearId: null, ...data } });
 }
 
 export function upsertPeriodQuota(academicYearId, data, client = prisma) {
@@ -82,4 +82,30 @@ export function upsertPeriodQuota(academicYearId, data, client = prisma) {
 
 export function deletePeriodQuota(academicYearId, client = prisma) {
   return client.supervisionQuota.deleteMany({ where: { academicYearId } });
+}
+
+/** Accepted students remain in semester distribution after graduation or supervisor changes.
+ * Redirected and department requests belong to the lecturer who actually accepted them.
+ */
+export async function countSemesterIntake(academicYearId, client = prisma) {
+  if (!academicYearId) return new Map();
+  const rows = await client.thesisSupervisorRequest.findMany({
+    where: { academicYearId, status: { in: ["accepted", "redirected", "assigned", "pending", "under_review", "pending_kadep"] } },
+    select: { studentId: true, lecturerId: true, redirectedTo: true, status: true },
+  });
+  const result = new Map();
+  const accepted = new Map();
+  for (const row of rows) {
+    const id = row.redirectedTo ?? row.lecturerId;
+    if (!id) continue;
+    const entry = result.get(id) ?? { acceptedCount: 0, pendingCount: 0 };
+    if (["accepted", "redirected", "assigned"].includes(row.status)) {
+      const students = accepted.get(id) ?? new Set();
+      students.add(row.studentId);
+      accepted.set(id, students);
+      entry.acceptedCount = students.size;
+    } else entry.pendingCount += 1;
+    result.set(id, entry);
+  }
+  return result;
 }

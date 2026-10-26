@@ -6,6 +6,7 @@ import * as examinerRepo from "../../repositories/thesis-defence/examiner.reposi
 import { computeEffectiveDefenceStatus } from "../../utils/defenceStatus.util.js";
 import { mapScoreToGrade } from "../../utils/score.util.js";
 import prisma from "../../config/prisma.js";
+import { assertStudentThesisActionAllowed, getStudentThesisActionBlock, TAKING_THESIS_COURSE_LABEL, THESIS_ACTION_BLOCK } from "../thesisLifecycle.service.js";
 
 function throwError(message, statusCode) {
   const err = new Error(message);
@@ -147,6 +148,8 @@ export async function getOverview(userId) {
 
   const supervisors = thesis.thesisSupervisors || [];
   const allSupervisorsReady = supervisors.length > 0 && supervisors.every((s) => s.defenceReady);
+  const actionBlock = await getStudentThesisActionBlock(thesis.studentId, { thesis: { id: thesis.id }, requireThesisCourse: true });
+  const takingCourseMet = ![THESIS_ACTION_BLOCK.NOT_TAKING_THESIS, THESIS_ACTION_BLOCK.THESIS_COURSE_UNKNOWN].includes(actionBlock.code);
 
   const checklist = {
     lulusSeminar: { met: hasPassedSeminar, label: "Lulus Seminar Hasil", seminarStatus },
@@ -168,13 +171,15 @@ export async function getOverview(userId) {
         ready: s.defenceReady,
       })),
     },
+    mataKuliahTa: { met: takingCourseMet, label: TAKING_THESIS_COURSE_LABEL, reason: takingCourseMet ? null : actionBlock.reason },
   };
 
   const allChecklistMet =
     checklist.lulusSeminar.met &&
     checklist.sks.met &&
     checklist.revisiSeminar.met &&
-    checklist.pembimbing.met;
+    checklist.pembimbing.met &&
+    checklist.mataKuliahTa.met;
 
   let currentDefence = thesis.thesisDefences?.[0] || null;
 

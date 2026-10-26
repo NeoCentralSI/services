@@ -34,6 +34,7 @@ import {
   SUPERVISOR_REQUEST_STATUS as STATUS,
 } from "../src/constants/thesis-proposal.js";
 import { RESEARCH_METHOD_RESULT } from "../src/constants/research-method.js";
+import { recordIssuedAssignmentDocument, renderIssuedAssignmentPdf } from "../src/services/thesis-proposal/supervisor-assignment-document.service.js";
 import { storeGuidanceAttachment } from "../src/helpers/guidanceFile.helper.js";
 import {
   assignmentBatchDir,
@@ -43,7 +44,6 @@ import {
 import {
   assignmentPdfFileName,
   buildAssignmentCohort,
-  renderAssignmentPdf,
 } from "../src/helpers/supervisor-assignment.helper.js";
 
 const prisma = new PrismaClient();
@@ -69,7 +69,7 @@ const TOPIC = "Pengembangan Sistem (Enterprise Application)";
 const TOPIC_RD = "Business Intelligence (BI)";
 
 export const MINIMUM_SCORE = 60;
-export const SUPERVISION_LIMITS = { softLimit: 8, hardLimit: 10 };
+export const SUPERVISION_LIMITS = { semesterQuota: 5, totalLimit: 10 };
 
 /** Request form content shared by every account (title differs). */
 function requestFields(title) {
@@ -386,7 +386,7 @@ async function setFlags(studentId, academicYearId, flags, capturedAt) {
 
 async function ensureSupervisionLimits() {
   const general = await prisma.supervisionQuota.findFirst({ where: { academicYearId: null } });
-  if (!general) await prisma.supervisionQuota.create({ data: { academicYearId: null, ...SUPERVISION_LIMITS } });
+  if (!general) await prisma.supervisionQuota.create({ data: { id: "general", academicYearId: null, ...SUPERVISION_LIMITS } });
 }
 
 async function ensureMasterData(academicYear) {
@@ -468,7 +468,8 @@ async function createBatch({ academicYear, theses, kadep, generatedAt }) {
   });
   const { entries, cohortHash } = buildAssignmentCohort(full);
   const batchId = randomUUID();
-  const pdf = await renderAssignmentPdf({ academicYear, entries, kadep, now: generatedAt });
+  // An issued version, as the app issues it: verification QR and an official document record.
+  const { buffer: pdf, document } = await renderIssuedAssignmentPdf({ academicYear, entries, kadep, now: generatedAt, version: 1, cohortHash });
   const stored = await storeFile({
     relDir: assignmentBatchDir(batchId),
     file: { buffer: pdf, originalname: assignmentPdfFileName(academicYear, 1), mimetype: "application/pdf" },
@@ -487,6 +488,7 @@ async function createBatch({ academicYear, theses, kadep, generatedAt }) {
       members: { create: full.map((t) => ({ thesisId: t.id })) },
     },
   });
+  await recordIssuedAssignmentDocument(prisma, document, stored);
   return { batchId, members: full.length };
 }
 
@@ -518,7 +520,7 @@ async function main() {
     previous: await ensureMasterData(SEMESTER.previous),
   };
   const templates = await ensureProposalTemplates();
-  console.log(`✅ Batas bimbingan umum ${SUPERVISION_LIMITS.softLimit}/${SUPERVISION_LIMITS.hardLimit}, master data Metode Penelitian 2 semester, ${templates.length} template milestone proposal`);
+  console.log(`✅ Batas bimbingan umum ${SUPERVISION_LIMITS.semesterQuota}/${SUPERVISION_LIMITS.totalLimit}, master data Metode Penelitian 2 semester, ${templates.length} template milestone proposal`);
 
   const passwordHash = await bcrypt.hash(DEFAULT_PASSWORD, 10);
   const seeded = [];

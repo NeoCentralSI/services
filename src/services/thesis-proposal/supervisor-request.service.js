@@ -389,7 +389,7 @@ export async function submitRequest(userId, data) {
       request: created,
       newStatus: status,
       reason: justification,
-      metadata: lecturerLoad ? { lecturerLoad: lecturerLoad.activeCount, hardLimit: lecturerLoad.hardLimit } : null,
+      metadata: lecturerLoad ? { lecturerLoad: lecturerLoad.activeCount, totalLimit: lecturerLoad.totalLimit } : null,
     });
     return created;
   });
@@ -505,8 +505,9 @@ function lecturerCard(lecturer, load) {
     scienceGroup: lecturer.scienceGroup ?? null,
     acceptingRequests: lecturer.acceptingRequests !== false,
     activeCount: load.activeCount,
-    softLimit: load.softLimit,
-    hardLimit: load.hardLimit,
+    acceptedCount: load.acceptedCount,
+    semesterQuota: load.semesterQuota,
+    totalLimit: load.totalLimit,
     level: load.level,
     supervisedTopics: topics,
   };
@@ -762,7 +763,7 @@ export async function respondAsLecturer(requestId, userId, { action, approvalNot
 
     await repo.lockStudent(tx, request.studentId);
     const load = (await getLecturerLoads([userId], year.id, { client: tx })).get(userId);
-    if (load.activeCount < limits.hardLimit) {
+    if (load.activeCount < limits.totalLimit && load.acceptedCount < limits.semesterQuota) {
       return acceptInTx(tx, request, {
         lecturerId: userId,
         status: STATUS.ACCEPTED,
@@ -805,7 +806,7 @@ export async function respondAsLecturer(requestId, userId, { action, approvalNot
       oldStatus: request.status,
       newStatus: STATUS.PENDING_KADEP,
       reason,
-      metadata: { lecturerLoad: load.activeCount, hardLimit: limits.hardLimit },
+      metadata: { lecturerLoad: load.activeCount, totalLimit: limits.totalLimit },
     });
     return row;
   });
@@ -897,7 +898,7 @@ export async function getKadepQueue() {
       return {
         ...toDto(request, year.id),
         lecturerLoad: load
-          ? { ...load, projectedCount: load.activeCount + 1, overBy: Math.max(0, load.activeCount + 1 - load.hardLimit) }
+          ? { ...load, projectedCount: load.activeCount + 1, overBy: Math.max(0, load.activeCount + 1 - load.totalLimit) }
           : null,
       };
     }),
@@ -912,7 +913,7 @@ async function candidateLoads(year) {
 }
 
 function scoreCandidate(card, lecturer, topicId) {
-  const remaining = Math.max(0, card.hardLimit - card.activeCount);
+  const remaining = Math.max(0, card.totalLimit - card.activeCount);
   const sameTopic = lecturer.thesisSupervisors.filter((row) => row.thesis?.thesisTopicId === topicId).length;
   return { ...card, remaining, sameTopicCount: sameTopic, score: remaining * 3 + sameTopic * 2 + Math.max(0, 10 - card.activeCount) };
 }
@@ -1028,7 +1029,7 @@ export async function decideAsKadep(requestId, userId, { action, targetLecturerI
     const load = (await getLecturerLoads([lecturerId], year.id, { client: tx })).get(lecturerId);
     const overNormal = request.route === ROUTE.OVER_QUOTA && action === "approve"
       ? true
-      : classifyLoad(load.activeCount, limits) === SUPERVISION_LOAD_LEVEL.FULL;
+      : classifyLoad(load.activeCount, limits, load.acceptedCount) === SUPERVISION_LOAD_LEVEL.FULL;
 
     const isRedirect = action === "redirect";
     return acceptInTx(tx, request, {

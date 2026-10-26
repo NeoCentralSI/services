@@ -90,8 +90,9 @@ beforeEach(() => {
     thesis(),
     thesis({
       id: "t2",
-      status: "on_leave",
-      student: { user: { fullName: "UJI TA CUTI", identityNumber: "2211529004" } },
+      status: "research",
+      // The student is on leave: the thesis stays in research, paused.
+      student: { status: "bss", user: { fullName: "UJI TA CUTI", identityNumber: "2211529004" } },
       thesisSupervisors: [supervisor("Pembimbing 1", "prof. ir. surya afnarius, PhD")],
       progress: { activityLevel: null, supervisionClock: { elapsedLabel: "6 bulan 1 hari", evaluationDue: null } },
     }),
@@ -103,8 +104,7 @@ beforeEach(() => {
     }),
   ]);
   repo.getStatusDistribution.mockResolvedValue([
-    { id: "research", name: "research", count: 1 },
-    { id: "on_leave", name: "on_leave", count: 1 },
+    { id: "research", name: "research", count: 2 },
     { id: "completed", name: "completed", count: 1 },
     { id: "failed", name: "failed", count: 0 },
   ]);
@@ -123,15 +123,14 @@ describe("report data", () => {
 
     // The distribution used to carry name: "research".
     expect(report.statusDistribution).toEqual([
-      { id: "research", name: "Penelitian", count: 1 },
-      { id: "on_leave", name: "Berhenti Studi Sementara (BSS)", count: 1 },
+      { id: "research", name: "Penelitian", count: 2 },
       { id: "completed", name: "Selesai", count: 1 },
       { id: "failed", name: "Gagal", count: 0 },
     ]);
     expect(report.activityDistribution.map((row) => row.name)).toEqual(["Lancar", "Lambat", "Berisiko"]);
     expect(report.theses.map((row) => [row.statusLabel, row.activityLabel, row.evaluationDueLabel])).toEqual([
       ["Penelitian", "Lambat", "Evaluasi 6 bulan jatuh tempo"],
-      ["Berhenti Studi Sementara (BSS)", "-", null],
+      ["Penelitian (Cuti)", "-", null],
       ["Selesai", "-", null],
     ]);
     // The codes stay beside the labels for programs that read the data.
@@ -187,10 +186,10 @@ describe("report document", () => {
     expect(xml).toContain("Laporan Progress Pengerjaan Tugas Akhir Mahasiswa");
     expect(xml).toContain("Tugas Akhir yang Berjalan pada Semester Ganjil 2026/2027");
     expect(xml).not.toContain("Periode Semester");
-    for (const label of ["Penelitian", "Berhenti Studi Sementara (BSS)", "Selesai", "Lambat", "Evaluasi 6 bulan jatuh tempo"]) {
+    for (const label of ["Penelitian", "Penelitian (Cuti)", "Selesai", "Lambat", "Evaluasi 6 bulan jatuh tempo"]) {
       expect(xml).toContain(label);
     }
-    for (const raw of ["research", "on_leave", "completed", "slow", "six_month", "at_risk"]) {
+    for (const raw of ["research", "on_leave", "bss", "completed", "slow", "six_month", "at_risk"]) {
       expect(xml).not.toContain(raw);
     }
     expect(xml).toContain("Husnil Kamil, M.T");

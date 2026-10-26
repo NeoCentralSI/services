@@ -10,6 +10,12 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 import { buildState } from "./helpers/guidanceFixtures.js";
 import { store, resetDb, callsTo } from "./helpers/fakePrisma.js";
 
+// The student action shield (TA course of the semester, leave) reads tables this test does not fake.
+vi.mock("../../../services/thesisLifecycle.service.js", async (importOriginal) => ({
+  ...(await importOriginal()),
+  getStudentThesisActionBlock: vi.fn(async () => ({ blocked: false, code: null, reason: null, takingThesisCourse: true })),
+  assertStudentThesisActionAllowed: vi.fn(async () => ({ blocked: false, code: null, reason: null, takingThesisCourse: true })),
+}));
 vi.mock("../../../config/prisma.js", async () => ({
   default: (await import("./helpers/fakePrisma.js")).prismaFake,
 }));
@@ -159,10 +165,11 @@ describe("sesi bimbingan, dosen: tolak, setujui, ubah jadwal, batal", () => {
     await expect(
       lecturer.rescheduleGuidanceByLecturerService("rel", "g-acc-rel", { newDate: future(6), reason: "x" }),
     ).rejects.toMatchObject({ statusCode: 403 });
-    store.state.thesis[0].status = "on_leave";
+    // The student is on leave: the thesis stays in research and is paused.
+    store.state.thesis[0].leaveStartedAt = new Date();
     await expect(
       lecturer.rescheduleGuidanceByLecturerService("p1", "g-acc", { newDate: future(6), reason: "x" }),
-    ).rejects.toMatchObject({ statusCode: 403 });
+    ).rejects.toMatchObject({ statusCode: 403, message: expect.stringMatching(/cuti/) });
   });
 
   it("batal oleh dosen: hanya sesi terjadwal, alasan wajib, tercatat cancelledBy lecturer", async () => {
@@ -349,10 +356,10 @@ describe("siklus status milestone", () => {
     expect(m("m-review").orderIndex).toBe(1);
   });
 
-  it("pembimbing menambah milestone; TA bukan research ditolak 403", async () => {
+  it("pembimbing menambah milestone; selama mahasiswa cuti ditolak 403", async () => {
     await milestone.createMilestoneBySupervisor("t1", "p2", { title: "Dari P2" });
     expect(store.state.thesisMilestone.some((x) => x.title === "Dari P2" && x.phase === "research")).toBe(true);
-    store.state.thesis[0].status = "on_leave";
+    store.state.thesis[0].leaveStartedAt = new Date();
     await expect(milestone.createMilestoneBySupervisor("t1", "p1", { title: "x" })).rejects.toMatchObject({ statusCode: 403 });
   });
 });
@@ -360,10 +367,13 @@ describe("siklus status milestone", () => {
 describe("daftar Mahasiswa Bimbingan dosen", () => {
   const ids = (r) => r.students.map((s) => s.thesisId);
 
-  it("default Aktif (research + on_leave); Selesai, Gagal, Semua", async () => {
+  it("default Aktif (research, juga selama cuti); Selesai, Gagal, Semua", async () => {
     expect(ids(await lecturer.getMyStudentsService("p1"))).toEqual(["t1"]);
-    store.state.thesis[0].status = "on_leave";
-    expect(ids(await lecturer.getMyStudentsService("p1"))).toEqual(["t1"]);
+    store.state.thesis[0].leaveStartedAt = new Date();
+    const onLeave = await lecturer.getMyStudentsService("p1");
+    expect(ids(onLeave)).toEqual(["t1"]);
+    expect(onLeave.students[0].isOnLeave).toBe(true);
+    store.state.thesis[0].leaveStartedAt = null;
 
     store.state.thesis[0].status = "completed";
     expect(ids(await lecturer.getMyStudentsService("p1"))).toEqual([]);

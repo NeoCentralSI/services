@@ -13,6 +13,7 @@ import {
   semesterLabel,
 } from "../../helpers/supervisor-assignment.helper.js";
 import { assignmentBatchDir, removeFile, storeFile } from "../../helpers/thesis-proposal-file.helper.js";
+import { hashAssignmentFile, recordIssuedAssignmentDocument, renderIssuedAssignmentPdf } from "./supervisor-assignment-document.service.js";
 import { BadRequestError, ForbiddenError, NotFoundError } from "../../utils/errors.js";
 import { AUDIT_ACTIONS, ENTITY_TYPES, logAudit } from "../auditLog.service.js";
 import { createNotificationEventForUsers } from "../notification.service.js";
@@ -114,7 +115,7 @@ export async function previewAssignmentPdf(academicYearId = null) {
   const year = await resolveYear(academicYearId);
   const { cohort } = await loadCohort(year);
   const kadep = await repo.findActiveUserByRole(ROLES.KETUA_DEPARTEMEN);
-  const buffer = await renderAssignmentPdf({ academicYear: year, entries: cohort.entries, kadep });
+  const buffer = await renderAssignmentPdf({ preview: true, academicYear: year, entries: cohort.entries, kadep });
   return { buffer, fileName: `Pratinjau-${assignmentPdfFileName(year, "baru")}` };
 }
 
@@ -136,7 +137,15 @@ export async function issueAssignment(academicYearId, kadepUserId) {
   const now = new Date();
   const version = (current?.version ?? (await prisma.thesisSupervisorAssignmentBatch.count({ where: { academicYearId: year.id } }))) + 1;
   const batchId = randomUUID();
-  const buffer = await renderAssignmentPdf({ academicYear: year, entries: cohort.entries, kadep, now });
+  // An issued version is an official document: verification QR in place of the logo.
+  const { buffer, document } = await renderIssuedAssignmentPdf({
+    academicYear: year,
+    entries: cohort.entries,
+    kadep,
+    now,
+    version,
+    cohortHash: cohort.cohortHash,
+  });
   const stored = await storeFile({
     relDir: assignmentBatchDir(batchId),
     file: { buffer, originalname: assignmentPdfFileName(year, version), mimetype: "application/pdf" },
@@ -163,6 +172,8 @@ export async function issueAssignment(academicYearId, kadepUserId) {
           members: { create: thesisIds.map((thesisId) => ({ thesisId })) },
         },
       });
+      // The previous official version of the period becomes "superseded".
+      await recordIssuedAssignmentDocument(tx, document, stored);
       await tx.thesisSupervisorRequest.updateMany({
         where: { id: { in: theses.map((thesis) => thesis.requestId) }, status: { in: ACCEPTED_STATUSES } },
         data: { status: SUPERVISOR_REQUEST_STATUS.ASSIGNED },
@@ -224,11 +235,18 @@ export async function getBatchFile(batchId, userId) {
     }
   }
   const absolute = path.resolve(process.cwd(), batch.filePath);
+  let buffer;
   try {
-    return { buffer: await fs.readFile(absolute), fileName: batch.fileName, mimeType: batch.mimeType };
+    buffer = await fs.readFile(absolute);
   } catch {
     throw new NotFoundError("Berkas Penetapan Pembimbing tidak ditemukan di server.");
   }
+  // The stored official file is returned as it was issued (same QR token); a file that no longer
+  // matches its hash is refused instead of being rendered again.
+  if (batch.fileHash && hashAssignmentFile(buffer) !== batch.fileHash) {
+    throw new BadRequestError("Berkas Penetapan Pembimbing tidak sesuai dengan versi yang diterbitkan. Hubungi Admin.");
+  }
+  return { buffer, fileName: batch.fileName, mimeType: batch.mimeType };
 }
 
 /** Reminder for the Head of Department: accepted requests not yet in a batch (renamed old job). */

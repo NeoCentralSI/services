@@ -189,9 +189,6 @@ async function updateStudentAcademicBatch(stamped) {
           ? null
           : Number(entry.data.currentSemester),
       gpa: parseGpa(entry.data?.gpa),
-      graduationPredicate: entry.data?.graduationPredicate
-        ? String(entry.data.graduationPredicate).trim()
-        : null,
     };
     })
     .filter((e) => e.nim && !Number.isNaN(e.sks));
@@ -260,7 +257,6 @@ async function updateStudentAcademicIndividual(updates) {
     researchMethodCompleted,
     currentSemester,
     gpa,
-    graduationPredicate,
   } of updates) {
     try {
       const user = await prisma.user.findUnique({
@@ -280,7 +276,6 @@ async function updateStudentAcademicIndividual(updates) {
           researchMethodCompleted,
           currentSemester: Number.isNaN(currentSemester) ? null : currentSemester,
           gpa,
-          graduationPredicate,
         },
       });
       updated++;

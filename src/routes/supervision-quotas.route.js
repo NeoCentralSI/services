@@ -21,7 +21,7 @@ const READERS = [...MANAGERS, ROLES.ADMIN, ROLES.KOORDINATOR_METODE_PENELITIAN];
 
 router.get("/", requireAnyRole(READERS), controller.getOverview);
 router.put("/general", requireAnyRole(MANAGERS), validate(validator.limitsSchema), controller.setGeneral);
-router.put("/periods/:academicYearId", requireAnyRole(KADEP), validate(validator.limitsSchema), controller.setPeriod);
+router.put("/periods/:academicYearId", requireAnyRole(KADEP), validate(validator.periodQuotaSchema), controller.setPeriod);
 router.delete("/periods/:academicYearId", requireAnyRole(KADEP), controller.clearPeriod);
 router.get("/me", requireAnyRole(LECTURER_ROLES), controller.getMine);
 router.patch("/me/accepting-requests", requireAnyRole(LECTURER_ROLES), validate(validator.acceptingRequestsSchema), controller.setAcceptingRequests);

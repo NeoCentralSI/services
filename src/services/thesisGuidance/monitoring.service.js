@@ -3,10 +3,10 @@ import { sendFcmToUsers } from "../push.service.js";
 import { DEPARTMENT_ROLES, ROLES } from "../../constants/roles.js";
 import { createNotificationsForUsers } from "../notification.service.js";
 import prisma from "../../config/prisma.js";
-import { THESIS_STATUS } from "../../constants/thesisStatus.js";
+import { THESIS_STATUS, isThesisOnLeave } from "../../constants/thesisStatus.js";
 import { getActiveAcademicYearId } from "../../helpers/academicYear.helper.js";
 import { getSemesterRange, getThesisStartedAt, isDateInSemester } from "../../helpers/semester-scope.helper.js";
-import { getThesisStatusLabel, getThesisActivityLabel, getEvaluationDueLabel } from "../../constants/thesisLabels.js";
+import { getThesisStatusLabel, getThesisActivityLabel, getEvaluationDueLabel, THESIS_ON_LEAVE_LABEL } from "../../constants/thesisLabels.js";
 import {
   ACTIVITY_LEVEL,
   THESIS_PROGRESS_SELECT,
@@ -208,6 +208,8 @@ export async function getThesesList(filters) {
         email: t.student?.user?.email,
       },
       status: t.status,
+      // The student is on leave: the thesis is paused ("Cuti" badge).
+      isOnLeave: isThesisOnLeave(t),
       topic: t.thesisTopic
         ? {
             id: t.thesisTopic.id,
@@ -477,6 +479,7 @@ export async function getThesisDetail(thesisId) {
     id: thesis.id,
     title: thesis.title,
     status: thesis.status,
+    isOnLeave: isThesisOnLeave(thesis),
     ...progress,
     topic: thesis.thesisTopic?.name || null,
     academicYear: thesis.academicYear
@@ -611,12 +614,12 @@ export async function sendWarningNotificationService(userId, thesisId) {
   // Warning text per activity level (`slow` | `at_risk`).
   const warningMessages = {
     slow: {
-      title: "⚠️ Peringatan Progress Tugas Akhir",
+      title: "Peringatan Progress Tugas Akhir",
       body: `Halo ${studentName}, progress tugas akhir Anda terdeteksi lambat. Segera jadwalkan bimbingan dengan dosen pembimbing untuk mendiskusikan kendala yang dihadapi.`,
       notifBody: `Progress tugas akhir Anda terdeteksi lambat. Departemen mengingatkan Anda untuk segera menjadwalkan bimbingan.`
     },
     at_risk: {
-      title: "🚨 Peringatan Serius: Progress Tugas Akhir",
+      title: "Peringatan Serius: Progress Tugas Akhir",
       body: `Halo ${studentName}, aktivitas tugas akhir Anda berstatus Berisiko (tanpa aktivitas lebih dari 120 hari). Segera hubungi dosen pembimbing.`,
       notifBody: `Aktivitas tugas akhir Anda berstatus Berisiko. Departemen meminta Anda segera menghubungi dosen pembimbing.`
     },
@@ -724,12 +727,12 @@ export async function sendBatchWarningNotificationService(userId, thesisIds) {
   // Warning text per activity level (`slow` | `at_risk`).
   const warningMessages = {
     slow: {
-      title: "⚠️ Peringatan: Progress Tugas Akhir",
+      title: "Peringatan: Progress Tugas Akhir",
       body: (name, days) => `Halo ${name}, Anda sudah tidak ada update progress tugas akhir selama ${days} hari. Segera lakukan bimbingan dengan dosen pembimbing Anda.`,
       notifBody: (days) => `Anda tidak ada update progress selama ${days} hari. Segera hubungi dosen pembimbing Anda.`
     },
     at_risk: {
-      title: "🚨 Peringatan Serius: Progress Tugas Akhir",
+      title: "Peringatan Serius: Progress Tugas Akhir",
       body: (name, days) => `Halo ${name}, Anda sudah tidak ada update progress tugas akhir selama ${days} hari (aktivitas: Berisiko). Segera lakukan bimbingan dengan dosen pembimbing Anda.`,
       notifBody: (days) => `Progress Anda terhenti selama ${days} hari (aktivitas: Berisiko). Segera hubungi dosen pembimbing Anda.`
     }
@@ -867,7 +870,7 @@ export async function getProgressReportService(options = {}) {
       topic: t.thesisTopic?.name || "-",
       // The codes, and beside each the text the report prints (never the code itself).
       status: t.status || "-",
-      statusLabel: getThesisStatusLabel(t.status),
+      statusLabel: isThesisOnLeave(t) ? `${getThesisStatusLabel(t.status)} (${THESIS_ON_LEAVE_LABEL})` : getThesisStatusLabel(t.status),
       activityLevel,
       activityLabel: getThesisActivityLabel(activityLevel),
       supervisionLabel: t.progress?.supervisionClock?.elapsedLabel ?? "-",

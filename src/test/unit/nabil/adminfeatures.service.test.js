@@ -78,6 +78,18 @@ const { mockPrisma, mockAdminRepo, mockMailer, mockEnv, mockEmailTpl, mockPwdUti
   },
 }));
 
+// The student action shield (TA course of the semester, leave) reads tables this test does not fake.
+vi.mock("../../../services/thesisLifecycle.service.js", async (importOriginal) => ({
+  ...(await importOriginal()),
+  getStudentThesisActionBlock: vi.fn(async () => ({ blocked: false, code: null, reason: null, takingThesisCourse: true })),
+  assertStudentThesisActionAllowed: vi.fn(async () => ({ blocked: false, code: null, reason: null, takingThesisCourse: true })),
+}));
+// The graduation predicate is computed from tables this test does not fake.
+vi.mock("../../../helpers/graduation-predicate.helper.js", async (importOriginal) => ({
+  ...(await importOriginal()),
+  getGraduationSummaries: vi.fn(async (students) => new Map(students.map((s) => [s.id, { predicate: null, studySemesters: null, studyLength: "-" }]))),
+  getStudentGraduationSummary: vi.fn(async () => ({ predicate: null, studySemesters: null, studyLength: "-" })),
+}));
 vi.mock("../../../config/prisma.js", () => ({ default: mockPrisma }));
 vi.mock("../../../repositories/adminfeatures.repository.js", () => mockAdminRepo);
 vi.mock("../../../config/mailer.js", () => mockMailer);
@@ -111,6 +123,7 @@ import {
   adminUpdateLecturer,
   adminUpdateStudent,
   normalizeRoleInputName,
+  processImportUserRows,
 } from "../../../services/adminfeatures.service.js";
 
 // ── Test Data ──────────────────────────────────────────────────
@@ -212,6 +225,90 @@ describe("Module 17: Data Master Akun User", () => {
     });
   });
 
+  // ─── Admin account rules ──────────────────────────────────
+  describe("Admin account rules", () => {
+    const ADMIN_A = { id: "admin-a", fullName: "Admin A", email: "a@x.test", identityType: "NIP", isVerified: true };
+    const ADMIN_B = { id: "admin-b", fullName: "Admin B", email: "b@x.test", identityType: "NIP", isVerified: true };
+    const adminRoles = [{ roleId: "role-admin", status: "active", role: { name: "admin" } }];
+
+    beforeEach(() => {
+      mockAdminRepo.getUserRolesWithIds.mockResolvedValue(adminRoles);
+      mockAdminRepo.findRoleByName.mockImplementation(async (name) => ({ id: `role-${name}` }));
+      mockAdminRepo.upsertUserRole.mockResolvedValue({});
+      mockAdminRepo.deleteUserRolesByIds.mockResolvedValue({});
+      mockAdminRepo.updateUserById.mockResolvedValue({});
+      mockAdminRepo.findLecturerByUserId.mockResolvedValue({ id: "l" });
+      mockPrisma.user.findUnique.mockResolvedValue({ ...ADMIN_B, userHasRoles: [] });
+    });
+
+    it("an Admin cannot change the roles of their own account", async () => {
+      mockAdminRepo.findUserById.mockResolvedValue(ADMIN_A);
+      await expect(
+        adminUpdateUser("admin-a", { roles: ["admin", "pembimbing_1"] }, { actorUserId: "admin-a" }),
+      ).rejects.toMatchObject({ statusCode: 400, message: "Anda tidak dapat mengubah peran akun Anda sendiri." });
+      expect(mockAdminRepo.upsertUserRole).not.toHaveBeenCalled();
+    });
+
+    it("an Admin cannot deactivate their own account, but may save it unchanged", async () => {
+      mockAdminRepo.findUserById.mockResolvedValue(ADMIN_A);
+      await expect(adminUpdateUser("admin-a", { isVerified: false }, { actorUserId: "admin-a" })).rejects.toMatchObject({
+        message: "Anda tidak dapat menonaktifkan akun Anda sendiri.",
+      });
+      await expect(adminUpdateUser("admin-a", { fullName: "Admin A2", roles: ["admin"] }, { actorUserId: "admin-a" })).resolves.toBeDefined();
+    });
+
+    it("the last active Admin keeps the role and stays active", async () => {
+      mockAdminRepo.findUserById.mockResolvedValue(ADMIN_B);
+      mockPrisma.user.count.mockResolvedValue(0);
+      await expect(adminUpdateUser("admin-b", { roles: [] }, { actorUserId: "admin-a" })).rejects.toMatchObject({
+        message: "Harus ada minimal satu Admin aktif. Akun ini adalah Admin aktif terakhir.",
+      });
+      await expect(adminUpdateUser("admin-b", { isVerified: false }, { actorUserId: "admin-a" })).rejects.toMatchObject({
+        message: expect.stringContaining("Admin aktif terakhir"),
+      });
+      await expect(
+        adminUpdateUser("admin-b", { roles: [{ name: "admin", status: "nonActive" }] }, { actorUserId: "admin-a" }),
+      ).rejects.toMatchObject({ message: expect.stringContaining("Admin aktif terakhir") });
+      expect(mockAdminRepo.deleteUserRolesByIds).not.toHaveBeenCalled();
+
+      // Another active Admin remains: the role may be revoked.
+      mockPrisma.user.count.mockResolvedValue(1);
+      await adminUpdateUser("admin-b", { roles: ["pembimbing_1"] }, { actorUserId: "admin-a" });
+      expect(mockAdminRepo.deleteUserRolesByIds).toHaveBeenCalledWith("admin-b", ["role-admin"]);
+    });
+
+    it("an import row that mixes Admin with another role, or adds a role to an Admin, is rejected and reported", async () => {
+      mockAdminRepo.findUserByEmailOrIdentity.mockResolvedValueOnce(null).mockResolvedValueOnce({ id: "admin-b" });
+      const result = await processImportUserRows(
+        [
+          { email: "x@x.test", fullName: "X", identityNumber: "198001012005011001", role: "admin, pembimbing 1", identityType: "NIP" },
+          { email: "b@x.test", fullName: "Admin B", identityNumber: "198001012005011002", role: "penguji", identityType: "NIP" },
+        ],
+        { actorUserId: "admin-a" },
+      );
+      expect(result.failed).toBe(2);
+      expect(result.errors).toEqual([
+        expect.stringMatching(/^Baris 2: Peran Admin tidak dapat digabung/),
+        expect.stringMatching(/^Baris 3: Peran Admin tidak dapat digabung/),
+      ]);
+      expect(mockAdminRepo.upsertUserRole).not.toHaveBeenCalled();
+    });
+
+    it("the Admin role is exclusive on edit and on create", async () => {
+      mockAdminRepo.findUserById.mockResolvedValue({ ...USER, id: "lect-1", identityType: "NIP", isVerified: true });
+      mockAdminRepo.getUserRolesWithIds.mockResolvedValue([{ roleId: "role-pembimbing_1", status: "active", role: { name: "pembimbing_1" } }]);
+      await expect(adminUpdateUser("lect-1", { roles: ["pembimbing_1", "admin"] }, { actorUserId: "admin-a" })).rejects.toMatchObject({
+        statusCode: 400,
+        message: "Peran Admin tidak dapat digabung dengan peran lain. Akun Admin hanya memegang peran Admin.",
+      });
+      await expect(
+        adminCreateUser({ email: "new@x.test", roles: ["admin", "penguji"], identityType: "NIP" }, { actorUserId: "admin-a" }),
+      ).rejects.toMatchObject({ message: expect.stringContaining("Peran Admin tidak dapat digabung") });
+      expect(mockAdminRepo.createUser).not.toHaveBeenCalled();
+    });
+  });
+
+
   // ─── Get Users (Paginated) ────────────────────────────────
   describe("getUsers", () => {
     it("returns paginated user list", async () => {
@@ -297,10 +394,23 @@ describe("Module 15: Data Master Mahasiswa", () => {
       mockPrisma.user.findMany.mockResolvedValue([]);
       mockPrisma.user.count.mockResolvedValue(0);
 
-      await getStudents({ page: 1, pageSize: 10, enrollmentYear: 2021 });
+      await getStudents({ page: 1, pageSize: 10 });
+      expect(mockPrisma.user.findMany.mock.calls[0][0].where.student).toEqual({ isNot: null });
 
-      const call = mockPrisma.user.findMany.mock.calls[0][0];
-      expect(call.where.student).toEqual({ isNot: null, enrollmentYear: 2021 });
+      await getStudents({ page: 1, pageSize: 10, enrollmentYear: 2021 });
+      expect(mockPrisma.user.findMany.mock.calls[1][0].where.student).toEqual({ is: { AND: [{ enrollmentYear: 2021 }] } });
+    });
+
+    it("status filter is applied in the query (count and rows); an unknown value is ignored", async () => {
+      mockPrisma.user.findMany.mockResolvedValue([]);
+      mockPrisma.user.count.mockResolvedValue(0);
+
+      await getStudents({ page: 1, pageSize: 10, status: "bss" });
+      expect(mockPrisma.user.findMany.mock.calls[0][0].where.student).toEqual({ is: { AND: [{ status: "bss" }] } });
+      expect(mockPrisma.user.count.mock.calls[0][0].where).toEqual(mockPrisma.user.findMany.mock.calls[0][0].where);
+
+      await getStudents({ page: 1, pageSize: 10, status: "cuti" });
+      expect(mockPrisma.user.findMany.mock.calls[1][0].where.student).toEqual({ isNot: null });
     });
 
     it("program filter reads the SIA flags of the chosen period; unknown flags count as not taking", async () => {
@@ -311,17 +421,46 @@ describe("Module 15: Data Master Mahasiswa", () => {
       await getStudents({ page: 1, pageSize: 10, program: "research-method", academicYearId: "ay-genap", enrollmentYear: 2022 });
       expect(mockPrisma.user.findMany.mock.calls[0][0].where.student).toEqual({
         is: {
-          enrollmentYear: 2022,
-          academicYearSnapshots: {
-            some: { academicYearId: "ay-genap", eligibleResearchMethod: true, OR: [{ takingThesisCourse: false }, { takingThesisCourse: null }] },
-          },
+          AND: [
+            { enrollmentYear: 2022 },
+            { academicYearSnapshots: { some: { academicYearId: "ay-genap", eligibleResearchMethod: true, OR: [{ takingThesisCourse: false }, { takingThesisCourse: null }] } } },
+          ],
         },
       });
 
       await getStudents({ page: 1, pageSize: 10, program: "none", academicYearId: "ay-genap" });
-      expect(mockPrisma.user.findMany.mock.calls[1][0].where.student.is.academicYearSnapshots).toEqual({
+      expect(mockPrisma.user.findMany.mock.calls[1][0].where.student.is.AND[0].academicYearSnapshots).toEqual({
         none: { academicYearId: "ay-genap", OR: [{ eligibleResearchMethod: true }, { takingThesisCourse: true }] },
       });
+    });
+
+    it("program 'both' needs both flags in the chosen period, and combines with status, search and sorting", async () => {
+      mockPrisma.user.findMany.mockResolvedValue([]);
+      mockPrisma.user.count.mockResolvedValue(0);
+      mockPrisma.academicYear.findUnique.mockResolvedValue({ id: "ay-ganjil", year: "2026/2027", semester: "ganjil" });
+
+      await getStudents({ page: 2, pageSize: 10, program: "both", status: "active", search: "Uji", academicYearId: "ay-ganjil", sortBy: "fullName", sortOrder: "asc" });
+      const call = mockPrisma.user.findMany.mock.calls[0][0];
+      expect(call.where.student).toEqual({
+        is: {
+          AND: [
+            { status: "active" },
+            { academicYearSnapshots: { some: { academicYearId: "ay-ganjil", eligibleResearchMethod: true, takingThesisCourse: true } } },
+          ],
+        },
+      });
+      expect(call.where.OR).toEqual(expect.arrayContaining([{ fullName: { contains: "Uji" } }]));
+      expect(call.orderBy).toEqual([{ fullName: "asc" }]);
+      expect(call.skip).toBe(10);
+      expect(mockPrisma.user.count.mock.calls[0][0].where).toEqual(call.where);
+    });
+
+    it("program filter without a resolvable period matches nothing instead of every student", async () => {
+      mockPrisma.user.findMany.mockResolvedValue([]);
+      mockPrisma.user.count.mockResolvedValue(0);
+      mockAcademicYear.resolveOperationalAcademicYear.mockResolvedValue(null);
+      await getStudents({ page: 1, pageSize: 10, program: "both" });
+      expect(mockPrisma.user.findMany.mock.calls[0][0].where.student.is.AND[0].academicYearSnapshots.some.academicYearId).toBe("__none__");
     });
   });
 
@@ -398,15 +537,28 @@ describe("Module 15: Data Master Mahasiswa", () => {
   });
 
   describe("adminUpdateStudent", () => {
-    it("updates student status and SKS", async () => {
+    it("updates SKS and logs the academic change; an unchanged status writes no status change", async () => {
+      const auditCreate = vi.fn();
+      mockPrisma.student.findUnique.mockResolvedValue({ id: "user-1", status: "active", sksCompleted: 100 });
       mockPrisma.student.update.mockResolvedValue({ id: "user-1", status: "active", sksCompleted: 120 });
+      mockPrisma.$transaction.mockImplementation((fn) => fn({ ...mockPrisma, auditLog: { create: auditCreate } }));
 
-      const result = await adminUpdateStudent("user-1", { status: "active", sksCompleted: 120 });
+      const result = await adminUpdateStudent("user-1", { status: "active", sksCompleted: 120 }, { actorUserId: "admin-1" });
 
-      expect(result).toHaveProperty("status", "active");
+      expect(result).toHaveProperty("sksCompleted", 120);
       expect(mockPrisma.student.update).toHaveBeenCalledWith({
         where: { id: "user-1" },
-        data: expect.objectContaining({ status: "active", sksCompleted: 120 }),
+        data: expect.objectContaining({ sksCompleted: 120 }),
+      });
+      expect(mockPrisma.student.update.mock.calls[0][0].data).not.toHaveProperty("status");
+      expect(auditCreate).toHaveBeenCalledWith({
+        data: expect.objectContaining({
+          action: "STUDENT_ACADEMIC_UPDATED",
+          entity: "STUDENT",
+          entityId: "user-1",
+          userId: "admin-1",
+          changes: expect.objectContaining({ oldValues: { sksCompleted: 100 }, newValues: { sksCompleted: 120 } }),
+        }),
       });
     });
   });
@@ -417,6 +569,13 @@ describe("Module 16: Data Master Dosen", () => {
   beforeEach(() => vi.clearAllMocks());
 
   describe("getLecturers", () => {
+    it("filters by science group in the query", async () => {
+      mockPrisma.user.findMany.mockResolvedValue([]);
+      mockPrisma.user.count.mockResolvedValue(0);
+      await getLecturers({ page: 1, pageSize: 10, scienceGroupId: "sg-1" });
+      expect(mockPrisma.user.findMany.mock.calls[0][0].where.AND).toContainEqual({ lecturer: { is: { scienceGroupId: "sg-1" } } });
+    });
+
     it("returns paginated lecturer list", async () => {
       mockPrisma.user.findMany.mockResolvedValue([{
         id: "user-lec",

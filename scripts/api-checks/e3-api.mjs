@@ -52,21 +52,23 @@ for (const [name, id] of Object.entries(views)) {
 const statusOf = (d) => Object.fromEntries(d.statusDistribution.map((s) => [s.id, s.count]));
 // Uji Mon Sidang Revisi Final is seeded Selesai (revision finalized), one research
 // thesis fewer and one completed more; a Selesai thesis has no activity level (one Lancar fewer).
-check("semester berjalan: status", eq(statusOf(dash.berjalan), { research: 55, on_leave: 1, completed: 2, failed: 0 }), statusOf(dash.berjalan));
-check("semester lalu: status", eq(statusOf(dash.lalu), { research: 53, on_leave: 1, completed: 4, failed: 2 }), statusOf(dash.lalu));
-check("semua semester: status", eq(statusOf(dash.semua), { research: 55, on_leave: 1, completed: 4, failed: 2 }), statusOf(dash.semua));
+// Uji TA Cuti counts as research (leave follows the student status); Uji TA Drop Out adds one
+// failed thesis that ended a month ago (running in this and the previous semester).
+check("semester berjalan: status", eq(statusOf(dash.berjalan), { research: 56, completed: 2, failed: 1 }), statusOf(dash.berjalan));
+check("semester lalu: status", eq(statusOf(dash.lalu), { research: 54, completed: 4, failed: 3 }), statusOf(dash.lalu));
+check("semua semester: status", eq(statusOf(dash.semua), { research: 56, completed: 4, failed: 3 }), statusOf(dash.semua));
 const inList = (view, name) => list[view].find((t) => t.student.name === name);
 check("Mulai Semester Lalu: masuk semester berjalan dan semester lalu", inList("berjalan", "Uji Mon Mulai Semester Lalu") && inList("lalu", "Uji Mon Mulai Semester Lalu"), inList("berjalan", "Uji Mon Mulai Semester Lalu")?.startSemester);
 check("Mulai Semester Lalu: kolom Mulai = Genap 2025/2026, status Penelitian", inList("berjalan", "Uji Mon Mulai Semester Lalu")?.startSemester === "Genap 2025/2026" && inList("berjalan", "Uji Mon Mulai Semester Lalu")?.status === "research");
 check("Selesai Semester Lalu: tidak masuk semester berjalan", !inList("berjalan", "Uji Mon Selesai Semester Lalu"));
 check("Selesai Semester Lalu: masuk semester lalu berstatus Selesai, Mulai = Ganjil 2025/2026", inList("lalu", "Uji Mon Selesai Semester Lalu")?.status === "completed" && inList("lalu", "Uji Mon Selesai Semester Lalu")?.startSemester === "Ganjil 2025/2026", inList("lalu", "Uji Mon Selesai Semester Lalu")?.startSemester);
 check("Sidang Lulus (selesai di tengah semester): masuk semester berjalan berstatus Selesai", inList("berjalan", "Uji Mon Sidang Lulus")?.status === "completed");
-check("Uji TA Cuti (BSS): masuk semester berjalan berstatus BSS", inList("berjalan", "Uji TA Cuti")?.status === "on_leave");
+check("Uji TA Cuti (mahasiswa cuti): masuk semester berjalan, status Penelitian dengan penanda cuti", inList("berjalan", "Uji TA Cuti")?.status === "research" && inList("berjalan", "Uji TA Cuti")?.isOnLeave === true && inList("berjalan", "Uji TA Cuti")?.supervisionClock?.isPaused === true);
 check("Uji TA Lancar (mulai semester ini): tidak masuk semester lalu", inList("berjalan", "Uji TA Lancar") && !inList("lalu", "Uji TA Lancar"), inList("berjalan", "Uji TA Lancar")?.startSemester);
 // The table shows one thesis per student: a stopped thesis is hidden while the student has a
 // newer one in the same list. Uji TA Riwayat: the stopped thesis shows in the previous semester
 // (the new one had not started), and is hidden under "Semua Semester".
-check("tabel: jumlah baris berjalan/lalu/semua", eq([list.berjalan.length, list.lalu.length, list.semua.length], [58, 60, 61]), [list.berjalan.length, list.lalu.length, list.semua.length]);
+check("tabel: jumlah baris berjalan/lalu/semua", eq([list.berjalan.length, list.lalu.length, list.semua.length], [59, 61, 62]), [list.berjalan.length, list.lalu.length, list.semua.length]);
 check("Uji TA Riwayat: TA yang dihentikan tampil di semester lalu, TA barunya di semester berjalan", list.lalu.filter((t) => t.student.name === "Uji TA Riwayat").map((t) => t.status).join() === "failed" && list.berjalan.filter((t) => t.student.name === "Uji TA Riwayat").map((t) => t.status).join() === "research" && list.semua.filter((t) => t.student.name === "Uji TA Riwayat").map((t) => t.status).join() === "research");
 const months = (d) => d.guidanceTrend.map((t) => t.month);
 check("tren semester berjalan hanya Agu–Okt 2026", eq(months(dash.berjalan), ["2026-08", "2026-09", "2026-10"]), dash.berjalan.guidanceTrend);
@@ -77,7 +79,7 @@ check("aktivitas semester lalu", eq(dash.lalu.activityDistribution.map((a) => a.
 check("Siap Seminar (ringkasan Bimbingan) = 1 pada ketiga pilihan", eq([dash.berjalan.summary.totalReadyForSeminar, dash.lalu.summary.totalReadyForSeminar, dash.semua.summary.totalReadyForSeminar], [1, 1, 1]));
 const report = {};
 for (const [name, id] of Object.entries(views)) report[name] = (await get(KADEP, `/thesisGuidance/monitoring/report${q(id)}`)).data;
-check("laporan memakai filter yang sama (jumlah TA berjalan/lalu/semua)", eq([report.berjalan.summary.totalTheses, report.lalu.summary.totalTheses, report.semua.summary.totalTheses], [58, 60, 62]), [report.berjalan.summary.totalTheses, report.lalu.summary.totalTheses, report.semua.summary.totalTheses]);
+check("laporan memakai filter yang sama (jumlah TA berjalan/lalu/semua)", eq([report.berjalan.summary.totalTheses, report.lalu.summary.totalTheses, report.semua.summary.totalTheses], [59, 61, 63]), [report.berjalan.summary.totalTheses, report.lalu.summary.totalTheses, report.semua.summary.totalTheses]);
 check("laporan: nama periode", eq([report.berjalan.academicYear, report.lalu.academicYear, report.semua.academicYear], ["Ganjil 2026/2027", "Genap 2025/2026", "Semua Semester"]));
 const oldList = (await get(KADEP, `/thesisGuidance/monitoring/theses?pageSize=1000&academicYear=${OLD_ID}`)).json.data;
 check("Ganjil 2025/2026: Selesai Semester Lalu ikut (mulai di semester itu)", oldList.some((t) => t.student.name === "Uji Mon Selesai Semester Lalu") && !oldList.some((t) => t.student.name === "Uji Mon Mulai Semester Lalu"), oldList.length);

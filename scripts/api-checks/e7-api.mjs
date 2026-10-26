@@ -147,8 +147,12 @@ await run("I.1 lulus tanpa revisi → Selesai (ta_eval_tunggu_kadep)", async () 
   check("halaman seminar hasil mahasiswa tetap menemukan TA-nya", seminar.status === 200 && seminar.data?.thesisId === thesis.id, `${seminar.status} ${seminar.json?.message}`);
   const overviewTa = await myThesis(who);
   check("Overview: TA berstatus Selesai (badge Selesai)", overviewTa?.status === "completed", overviewTa?.status);
-  const history = await api(who, "GET", "/thesisGuidance/student/completed-history");
-  check("riwayat bimbingan selesai tetap terbaca", history.status === 200 && (history.json?.guidances?.length ?? 0) >= 1, `${history.status} ${history.json?.guidances?.length}`);
+  // The guidance page lists the completed sessions (the old history endpoint is gone).
+  const history = await api(who, "GET", "/thesisGuidance/student/guidance?status=completed");
+  const completedSessions = history.json?.items ?? [];
+  check("sesi bimbingan selesai tetap terbaca di halaman Bimbingan", history.status === 200 && completedSessions.length >= 1, `${history.status} ${completedSessions.length}`);
+  const gone = await api(who, "GET", "/thesisGuidance/student/completed-history");
+  check("endpoint riwayat lama sudah tidak ada", gone.status === 404, gone.status);
   for (const target of [who, HUSNIL]) {
     const notes = await notificationsOf(target);
     check(`notifikasi "Tugas akhir dinyatakan selesai." untuk ${target}`, notes.some((n) => n.message === "Tugas akhir dinyatakan selesai."), notes.slice(0, 3).map((n) => n.message));

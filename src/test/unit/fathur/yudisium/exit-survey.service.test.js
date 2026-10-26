@@ -5,10 +5,24 @@ import * as studentService from "../../../../services/yudisium/student.service.j
 import prisma from "../../../../config/prisma.js";
 import { convertHtmlToPdf } from "../../../../utils/pdf.util.js";
 
+// The student action shield (TA course of the semester, leave) reads tables this test does not fake.
+vi.mock("../../../../services/thesisLifecycle.service.js", async (importOriginal) => ({
+  ...(await importOriginal()),
+  getStudentThesisActionBlock: vi.fn(async () => ({ blocked: false, code: null, reason: null, takingThesisCourse: true })),
+  assertStudentThesisActionAllowed: vi.fn(async () => ({ blocked: false, code: null, reason: null, takingThesisCourse: true })),
+}));
+// The graduation predicate is computed from tables this test does not fake.
+vi.mock("../../../../helpers/graduation-predicate.helper.js", async (importOriginal) => ({
+  ...(await importOriginal()),
+  getGraduationSummaries: vi.fn(async (students) => new Map(students.map((s) => [s.id, { predicate: null, studySemesters: null, studyLength: "-" }]))),
+  getStudentGraduationSummary: vi.fn(async () => ({ predicate: null, studySemesters: null, studyLength: "-" })),
+}));
 vi.mock("../../../../repositories/yudisium/exit-survey.repository.js");
 vi.mock("../../../../services/yudisium/student.service.js");
 vi.mock("../../../../config/prisma.js", () => ({
   default: {
+    academicYear: { findFirst: vi.fn(async () => null) },
+    userHasRole: { findFirst: vi.fn(async () => null) },
     yudisiumParticipant: {
       count: vi.fn(),
       findMany: vi.fn(),
@@ -200,13 +214,12 @@ describe("Unit Test: Exit Survey Service", () => {
           thesisId: "t1",
           yudisiumId: "y1",
           exitSurveySubmittedAt: new Date(),
-          yudisium: { name: "Yud A" },
+          yudisium: { name: "Yud A", academicYear: { year: "2023/2024", semester: "genap" } },
           exitSurveyAnswers: [],
           thesis: {
             student: {
               enrollmentYear: 2020,
               gpa: 3.82,
-              graduationPredicate: "Dengan Pujian",
               user: { fullName: "Fathur", gender: false },
             },
           },
@@ -219,6 +232,8 @@ describe("Unit Test: Exit Survey Service", () => {
       expect(result[0].thesisId).toBe("t1");
       expect(result[0].genderLabel).toBe("Laki-laki");
       expect(result[0].gpa).toBe(3.82);
+      // Computed: GPA above 3.50 within 8 semesters (Ganjil 2020/2021 to Genap 2023/2024).
+      expect(result[0].graduationPredicate).toBe("Dengan Pujian");
     });
 
     it("exports PDF report for choice-question responses using backend renderer", async () => {
@@ -296,6 +311,13 @@ describe("Unit Test: Exit Survey Service", () => {
       expect(html).toContain("Kesesuaian kurikulum");
       expect(html).toContain("Sangat Sesuai");
       expect(html).not.toContain("Bagus");
+      // Sentence-case labels, percentages on one line, an unsigned acknowledgement block.
+      expect(html).toContain("Responden: 1");
+      expect(html).not.toMatch(/\d+ responden/);
+      expect(html).toContain('<span class="nowrap">100%</span>');
+      expect(html).toContain("Mengetahui,");
+      expect(html).toContain("Koordinator Yudisium,");
+      expect(html).not.toContain("OFFICIAL_DOCUMENT_QR");
     });
 
     it("exports Excel report with respondent identity and answers", async () => {

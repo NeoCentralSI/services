@@ -18,6 +18,7 @@ const defenceListInclude = {
         },
       },
       thesisSupervisors: {
+        orderBy: { role: { name: "asc" } },
         select: {
           id: true,
           lecturerId: true,
@@ -114,7 +115,8 @@ export async function findDefencesPaginated({ where = {}, skip = 0, take = 10 } 
       include: defenceListInclude,
       skip,
       take,
-      orderBy: { createdAt: "desc" },
+      // Archive: latest held date first (imports too), then the newest record; status plays no part.
+      orderBy: [{ date: "desc" }, { createdAt: "desc" }, { id: "asc" }],
     }),
     prisma.thesisDefence.count({ where }),
   ]);
@@ -215,6 +217,7 @@ export async function findDefenceBasicById(defenceId) {
             },
           },
           thesisSupervisors: {
+            orderBy: { role: { name: "asc" } },
             select: {
               lecturer: {
                 select: {
@@ -360,7 +363,7 @@ export async function getThesisOptions() {
       id: true,
       title: true,
       student: { select: { user: { select: { fullName: true, identityNumber: true } } } },
-      thesisSupervisors: { select: { lecturerId: true } },
+      thesisSupervisors: { orderBy: { role: { name: "asc" } }, select: { lecturerId: true } },
       thesisDefences: {
         select: { id: true, status: true },
         orderBy: { createdAt: "desc" },
@@ -522,6 +525,7 @@ export async function findDefenceSupervisorRole(defenceId, lecturerId) {
       thesis: {
         select: {
           thesisSupervisors: {
+            orderBy: { role: { name: "asc" } },
             where: { lecturerId },
             select: {
               id: true,
@@ -665,6 +669,7 @@ export async function getStudentThesisWithDefenceInfo(studentId) {
       studentId: true,
       title: true,
       thesisSupervisors: {
+        orderBy: { role: { name: "asc" } },
         select: {
           id: true,
           lecturerId: true,
@@ -811,6 +816,7 @@ export async function findStudentDefenceDetail(defenceId) {
           studentId: true,
           title: true,
           thesisSupervisors: {
+            orderBy: { role: { name: "asc" } },
             select: {
               role: { select: { name: true } },
               lecturer: { select: { user: { select: { fullName: true } } } },

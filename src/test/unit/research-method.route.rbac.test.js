@@ -22,7 +22,7 @@ describe("research-method route RBAC", () => {
     const writes = source.split("\n").filter((line) => /router\.(post|patch|delete)\("\/(cpmks|criteria|rubrics|academic-years)/.test(line));
     expect(writes.length).toBe(14);
     for (const line of writes) expect(line).toContain("SEKDEP_ONLY");
-    expect(source).toContain('router.post("/cpmks/copy-template", SEKDEP_ONLY, validate(copyCpmkTemplateSchema), copyCpmkTemplate);');
+    expect(source).toContain('router.post("/cpmks/copy-template", SEKDEP_ONLY, logPm({ entity: ENTITY_TYPES.CPMK, operation: "copy" }), validate(copyCpmkTemplateSchema), copyCpmkTemplate);');
   });
 
   it("Template milestone proposal dikelola Sekretaris Departemen saja; daftarnya tetap terbaca", () => {

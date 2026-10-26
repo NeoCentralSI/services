@@ -24,7 +24,8 @@ const router = express.Router();
 
 router.post("/students/import", authGuard, requireRole(ROLES.ADMIN), uploadCsv, importStudentsCsv);
 router.get("/users", authGuard, requireRole(ROLES.ADMIN), getUsersController);
-router.get("/audit-logs", authGuard, requireRole(ROLES.ADMIN), getAdminAuditLogsController);
+// Log Aktivitas: Admin, and read-only for the Ketua and Sekretaris Departemen.
+router.get("/audit-logs", authGuard, requireAnyRole([ROLES.ADMIN, ROLES.KETUA_DEPARTEMEN, ROLES.SEKRETARIS_DEPARTEMEN]), getAdminAuditLogsController);
 router.get("/students", authGuard, requireAnyRole([ROLES.ADMIN, ROLES.KETUA_DEPARTEMEN, ROLES.SEKRETARIS_DEPARTEMEN]), getStudentsController);
 router.get("/students/:id", authGuard, requireAnyRole([ROLES.ADMIN, ROLES.KETUA_DEPARTEMEN, ROLES.SEKRETARIS_DEPARTEMEN]), getStudentDetailController);
 router.patch("/students/:id", authGuard, requireRole(ROLES.ADMIN), updateStudentByAdminController);

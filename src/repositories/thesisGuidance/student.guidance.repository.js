@@ -13,7 +13,7 @@ export function getStudentByUserId(userId) {
 }
 
 /**
- * TA mahasiswa yang belum berakhir (proposal, research, on_leave), terbaru lebih dulu.
+ * TA mahasiswa yang belum berakhir (proposal, research), terbaru lebih dulu.
  * Dipakai bimbingan/milestone (aksi tulis wajib cek status === research) dan
  * fase proposal untuk TA berstatus proposal.
  */
@@ -234,30 +234,6 @@ export async function submitSessionSummary(guidanceId, { sessionSummary, actionI
 /**
  * Get completed guidance history for student
  */
-export function getCompletedGuidanceHistory(studentId) {
-  return prisma.thesisGuidance.findMany({
-    where: {
-      thesis: { studentId },
-      status: "completed",
-    },
-    include: {
-      supervisor: { include: { user: true } },
-      milestones: { include: { milestone: { select: { id: true, title: true } } } },
-      thesis: {
-        select: {
-          title: true,
-          student: {
-            select: {
-              user: { select: { fullName: true, identityNumber: true } },
-            },
-          },
-        },
-      },
-    },
-    orderBy: [{ completedAt: "desc" }, { id: "desc" }],
-  });
-}
-
 /**
  * Get single guidance detail for export/download
  */

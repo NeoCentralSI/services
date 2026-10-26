@@ -109,7 +109,7 @@ export function findThesisForChange(thesisId, client = prisma) {
       academicYearId: true,
       thesisTopicId: true,
       thesisTopic: { select: { id: true, name: true } },
-      student: { select: { id: true, user: USER_NAME } },
+      student: { select: { id: true, status: true, user: USER_NAME } },
       thesisSeminars: { select: { id: true, status: true } },
       // A title-only change waits while the defence is in process.
       thesisDefences: { select: { id: true, status: true } },
@@ -134,7 +134,7 @@ export async function findStudentThesisId(studentId, client = prisma) {
     select: { id: true, status: true },
     orderBy: [{ createdAt: "desc" }, { id: "desc" }],
   });
-  const open = theses.find((thesis) => ["research", "on_leave", "proposal"].includes(thesis.status));
+  const open = theses.find((thesis) => ["research", "proposal"].includes(thesis.status));
   return (open ?? theses[0])?.id ?? null;
 }
 
@@ -159,12 +159,12 @@ export async function userHasActiveRole(userId, roleName, client = prisma) {
 export async function getSupervisorLoad(lecturerId, client = prisma) {
   const activeYear = await client.academicYear.findFirst({ where: { isActive: true }, select: { id: true } });
   const load = await getLecturerLoad(lecturerId, activeYear?.id ?? null, { client });
-  return { activeCount: load.activeCount, quotaMax: load.hardLimit };
+  return { activeCount: load.activeCount, quotaMax: load.totalLimit };
 }
 
 /** The loads of several lecturers at once (the supervisor picker). */
 export async function getSupervisorLoads(lecturerIds, client = prisma) {
   const activeYear = await client.academicYear.findFirst({ where: { isActive: true }, select: { id: true } });
   const loads = await getLecturerLoads(lecturerIds, activeYear?.id ?? null, { client });
-  return new Map([...loads].map(([id, load]) => [id, { activeCount: load.activeCount, quotaMax: load.hardLimit }]));
+  return new Map([...loads].map(([id, load]) => [id, { activeCount: load.activeCount, quotaMax: load.totalLimit }]));
 }

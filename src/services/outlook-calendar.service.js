@@ -124,6 +124,14 @@ function formatDateTimeForOutlook(date) {
 }
 
 /**
+ * Hidden mark of the events NeoCentral writes to Outlook (a single-value extended property), so
+ * they are not read back as "Outlook" events and shown twice.
+ */
+export const NEOCENTRAL_EVENT_PROPERTY_ID = "String {6f1a3c2e-8b4d-4f7a-9c1e-2d5b7a9e4c10} Name NeoCentralSource";
+/** The line older NeoCentral events carry in their body (before the hidden mark existed). */
+const NEOCENTRAL_BODY_MARKS = ["Disinkronkan dari Neo Central", "Disinkronkan dari NeoCentral"];
+
+/**
  * Create a calendar event in user's Outlook calendar
  * @param {string} userId - User ID who owns the calendar
  * @param {Object} eventData - Event details
@@ -158,6 +166,7 @@ export async function createCalendarEvent(userId, eventData) {
     attendees: attendeesList,
     isOnlineMeeting: false,
     responseRequested: false,
+    singleValueExtendedProperties: [{ id: NEOCENTRAL_EVENT_PROPERTY_ID, value: "neocentral" }],
   };
 
   // Add location if provided
@@ -286,78 +295,67 @@ export async function getCalendarEvents(userId, startDate, endDate) {
     endDateTime: endDate.toISOString(),
     $orderby: "start/dateTime",
     $top: "50",
+    $select: "id,subject,start,end,location,webLink,isOnlineMeeting,onlineMeeting,bodyPreview",
+    $expand: `singleValueExtendedProperties($filter=id eq '${NEOCENTRAL_EVENT_PROPERTY_ID}')`,
   });
 
   try {
     const response = await axios.get(
       `${GRAPH_API_BASE}/me/calendarView?${params}`,
       {
-        headers: { Authorization: `Bearer ${accessToken}` },
+        // Times in UTC, converted below; the frontend shows them in WIB.
+        headers: { Authorization: `Bearer ${accessToken}`, Prefer: 'outlook.timezone="UTC"' },
       }
     );
 
-    return response.data.value.map((event) => {
-      // Convert Outlook event times to proper Jakarta timezone for consistent display
-      // Graph API returns times in the timezone specified in the event
-      // We need to ensure they're properly formatted for frontend consumption
-      console.log('[OutlookCalendar] Raw event from Graph API:', {
+    const events = response.data.value ?? [];
+    // Guidance sessions synced before the hidden mark existed are known by their stored ids.
+    const ids = events.map((event) => event.id);
+    const syncedGuidance = ids.length
+      ? await prisma.thesisGuidance.findMany({
+        where: { OR: [{ studentCalendarEventId: { in: ids } }, { supervisorCalendarEventId: { in: ids } }] },
+        select: { studentCalendarEventId: true, supervisorCalendarEventId: true },
+      })
+      : [];
+    const knownIds = new Set(syncedGuidance.flatMap((g) => [g.studentCalendarEventId, g.supervisorCalendarEventId]).filter(Boolean));
+
+    return events
+      .filter((event) => !isNeoCentralEvent(event, knownIds))
+      .map((event) => ({
         id: event.id,
         subject: event.subject,
-        start: event.start,
-        end: event.end,
-        timezone: event.start?.timeZone
-      });
-
-      // Parse datetime and handle timezone conversion properly
-      const parseEventDateTime = (eventDateTime) => {
-        if (!eventDateTime) return null;
-
-        // If timezone is specified, use it; otherwise assume Jakarta
-        const timezone = eventDateTime.timeZone || 'Asia/Jakarta';
-
-        // Create a date object from the datetime
-        let date;
-        if (timezone === 'Asia/Jakarta') {
-          // If it's already Jakarta time, parse directly
-          date = new Date(`${eventDateTime.dateTime}+07:00`);
-        } else {
-          // Parse the datetime and convert to Jakarta
-          const tempDate = new Date(eventDateTime.dateTime);
-          // Convert to Jakarta timezone
-          date = new Date(tempDate.toLocaleString("en-US", { timeZone: "Asia/Jakarta" }));
-        }
-
-        return date.toISOString();
-      };
-
-      const convertedStart = parseEventDateTime(event.start);
-      const convertedEnd = parseEventDateTime(event.end);
-
-      console.log('[OutlookCalendar] Converted event times:', {
-        id: event.id,
-        subject: event.subject,
-        originalStart: event.start?.dateTime,
-        convertedStart,
-        originalEnd: event.end?.dateTime,
-        convertedEnd,
-        timezone: event.start?.timeZone
-      });
-
-      return {
-        id: event.id,
-        subject: event.subject,
-        start: convertedStart,
-        end: convertedEnd,
+        start: parseGraphUtcDateTime(event.start),
+        end: parseGraphUtcDateTime(event.end),
         location: event.location?.displayName,
         webLink: event.webLink,
         isOnlineMeeting: event.isOnlineMeeting,
         onlineMeetingUrl: event.onlineMeeting?.joinUrl,
-      };
-    });
+      }));
   } catch (error) {
     console.error("[OutlookCalendar] Failed to get events:", error.response?.data || error.message);
     throw new Error(`Failed to get calendar events: ${error.response?.data?.error?.message || error.message}`);
   }
+}
+
+/** An event NeoCentral itself wrote to Outlook: hidden mark, body line, or a stored guidance id. */
+export function isNeoCentralEvent(event, knownIds = new Set()) {
+  if (knownIds.has(event.id)) return true;
+  if ((event.singleValueExtendedProperties ?? []).some((p) => p.id?.toLowerCase() === NEOCENTRAL_EVENT_PROPERTY_ID.toLowerCase())) return true;
+  const preview = event.bodyPreview ?? "";
+  return NEOCENTRAL_BODY_MARKS.some((mark) => preview.includes(mark));
+}
+
+/**
+ * A Graph date-time asked in UTC ("2026-11-15T02:00:00.0000000", timeZone "UTC") as an ISO
+ * instant. Without the "Z" JavaScript would read it as the server's local time (7 hours off).
+ */
+export function parseGraphUtcDateTime(value) {
+  if (!value?.dateTime) return null;
+  const tz = value.timeZone ?? "UTC";
+  const base = value.dateTime.replace(/(\.\d{3})\d*$/, "$1");
+  if (/[zZ]|[+-]\d{2}:\d{2}$/.test(base)) return new Date(base).toISOString();
+  const offset = tz === "UTC" || tz === "Etc/UTC" ? "Z" : tz === "Asia/Jakarta" || tz === "SE Asia Standard Time" ? "+07:00" : "Z";
+  return new Date(`${base}${offset}`).toISOString();
 }
 
 /**
