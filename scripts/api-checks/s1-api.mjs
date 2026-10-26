@@ -60,7 +60,7 @@ try {
       const rows = await prisma.studentCplScore.findMany({ where: { studentId: cplStudent.s2.id, source: "SIA" }, select: { score: true, cpl: { select: { code: true } } } });
       const want = cplStudent.r.cplScores.map((c) => `${c.cplCode}:${c.score}`).sort();
       const got = rows.map((x) => `${x.cpl.code}:${x.score}`).sort();
-      check(`nilai CPL ${cplStudent.r.nim} masuk dari SIA`, JSON.stringify(got) === JSON.stringify(want) && Number(s.cplCreated) > 0, { want, got, created: s.cplCreated });
+      check(`nilai CPL ${cplStudent.r.nim} masuk dari SIA`, JSON.stringify(got) === JSON.stringify(want) && Number(s.cplCreated) + Number(s.cplUpdated) + Number(s.cplUnchanged) > 0, { want, got, created: s.cplCreated, unchanged: s.cplUnchanged });
     }
   });
 

@@ -34,7 +34,7 @@ Promosi tahap TA tidak dilakukan di sini; sinkronisasi hanya menulis data.
 |---|---|---|
 | Penanda semester | sumber `admin` | dipertahankan |
 | Nilai CPL | sumber bukan `SIA` atau status bukan `calculated` | dipertahankan |
-| IPK, status mahasiswa | tidak ada penanda manual di `students` | **nilai SIA berlaku** pada sinkronisasi berikutnya |
+| IPK, status mahasiswa | tidak ada penanda manual (keputusan K45) | **nilai SIA berlaku** pada sinkronisasi berikutnya; perubahan Admin akan tertimpa |
 
 ## Ringkasan
 

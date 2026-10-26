@@ -36,8 +36,6 @@ tags:
     description: Thesis topic management endpoints (Sekretaris Departemen)
   - name: Thesis Monitoring
     description: Thesis monitoring endpoints for Kadep/Sekdep
-  - name: SIA Sync
-    description: External SIA (Academic Information System) synchronization endpoints
   - name: AuditLog
     description: Audit log endpoints for tracking critical actions
   - name: Supervision Quota
@@ -106,15 +104,6 @@ paths:
 
   "/auth/microsoft/callback":
     $ref: "./auth/swagger-microsoft-auth.yaml#/microsoft_callback"
-
-  "/sia/sync":
-    $ref: "./sia/swagger-sia.yaml#/paths/~1sia~1sync"
-
-  "/sia/sync/status":
-    $ref: "./sia/swagger-sia.yaml#/paths/~1sia~1sync~1status"
-
-  "/sia/cached":
-    $ref: "./sia/swagger-sia.yaml#/paths/~1sia~1cached"
 
   "/adminfeatures/students/import":
     $ref: "./admin/swagger-admin.yaml#/admin_import_students"

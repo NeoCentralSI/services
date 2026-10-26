@@ -4,6 +4,7 @@
  * (code, name, credits); NeoCentral decides. When a code is unknown the course name is the
  * fallback. Change the codes here when the curriculum changes.
  */
+// IF4001 and IF5001 are placeholder codes: replace them with the real curriculum codes.
 export const RESEARCH_METHOD_COURSE_CODES = Object.freeze(["IF4001"]);
 export const THESIS_COURSE_CODES = Object.freeze(["IF5001"]);
 
