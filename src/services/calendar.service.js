@@ -311,15 +311,14 @@ export async function getUpcomingEvents(userId, userRole, days = 730, limit = 5)
 
 /** Counts for the dashboard: today, the next 7 days, this month. */
 export async function getEventStatistics(userId, userRole) {
+  // Today and this month in WIB, whatever the server's time zone.
   const now = new Date();
-  const todayStart = new Date(now);
-  todayStart.setHours(0, 0, 0, 0);
-  const todayEnd = new Date(now);
-  todayEnd.setHours(23, 59, 59, 999);
-  const next7Days = new Date(now);
-  next7Days.setDate(next7Days.getDate() + 7);
-  const monthStart = new Date(now.getFullYear(), now.getMonth(), 1);
-  const monthEnd = new Date(now.getFullYear(), now.getMonth() + 1, 0, 23, 59, 59, 999);
+  const wib = new Date(now.getTime() + 7 * 3600 * 1000);
+  const todayStart = new Date(Date.UTC(wib.getUTCFullYear(), wib.getUTCMonth(), wib.getUTCDate()) - 7 * 3600 * 1000);
+  const todayEnd = new Date(todayStart.getTime() + DAY_MS - 1);
+  const next7Days = new Date(todayStart.getTime() + 7 * DAY_MS);
+  const monthStart = new Date(Date.UTC(wib.getUTCFullYear(), wib.getUTCMonth(), 1) - 7 * 3600 * 1000);
+  const monthEnd = new Date(Date.UTC(wib.getUTCFullYear(), wib.getUTCMonth() + 1, 1) - 7 * 3600 * 1000 - 1);
 
   const week = await getMyCalendarEvents(userId, userRole, { startDate: todayStart.toISOString(), endDate: next7Days.toISOString() });
   const month = await getMyCalendarEvents(userId, userRole, { startDate: monthStart.toISOString(), endDate: monthEnd.toISOString() });
