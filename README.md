@@ -152,6 +152,45 @@ On startup:
 
 ---
 
+## Running with Docker
+
+`docker-compose.yml` runs the backend with MySQL, Redis, Gotenberg, and phpMyAdmin.
+
+```bash
+cp .env.example .env            # fill in the values
+docker compose up -d --build
+```
+
+Inside Compose, `DATABASE_URL`, `REDIS_URL`, and `GOTENBERG_URL` point to the Compose services automatically. Building and starting never change the database schema; that is done with explicit commands:
+
+| Command | Purpose |
+|---|---|
+| `docker compose run --rm backend db-push` | Apply `prisma/schema.prisma` (refuses changes that would lose data) |
+| `docker compose run --rm backend seed` | All seeders, including demo data (`password123` accounts) |
+| `docker compose run --rm backend reset --yes` | Drop all tables, push the schema, run all seeders |
+| `docker compose run --rm backend node scripts/<file>.js` | Run any other script |
+
+First install: `up -d --build`, then `db-push`, then `seed`.
+Update: `git pull`, `up -d --build`, and `db-push` when the schema changed.
+
+Ports bind to `127.0.0.1`:
+- API on `3000`;
+- phpMyAdmin on `8085`;
+- MySQL on `3306`.
+
+They can be changed in `.env`. Open phpMyAdmin from another machine with `ssh -L 8085:127.0.0.1:8085 user@server`.
+
+Data lives in the volumes:
+- `db-data`;
+- `uploads-data`;
+- `redis-data`.
+
+`docker compose down -v` deletes them.
+
+SIA: set `SIA_BASE_URL` to the SIA address. For dummy-SIA on the same machine, use `http://host.docker.internal:4000`. Leave it empty to skip synchronization.
+
+---
+
 ## Conventions and patterns
 
 ### Dynamic route loading

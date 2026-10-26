@@ -1,55 +1,31 @@
-# ── Stage 1: deps ──────────────────────────────────────────────
-FROM node:22-alpine AS deps
+# One image for the API and its maintenance commands (db-push, seed).
+# Building only generates the Prisma client; it never touches the database.
+FROM node:22-alpine
 WORKDIR /app
 
-# Install pnpm via npm (more reliable than corepack on Alpine)
-RUN npm install -g pnpm@10.23.0
+RUN apk add --no-cache curl && npm install -g pnpm@10.23.0
 
-# Copy manifests first for better layer caching
+# Dependencies first for layer caching. Dev dependencies stay: the Prisma CLI
+# is needed by the db-push and seed commands.
 COPY package.json pnpm-lock.yaml ./
-COPY prisma ./prisma/
-
-# Install ALL deps (devDeps needed for prisma CLI)
-RUN set -eux; pnpm install --frozen-lockfile || (yes | pnpm approve-builds && pnpm install --frozen-lockfile)
-
-# Generate Prisma client using binary directly (avoids pnpm exec issues)
+COPY prisma ./prisma
+RUN pnpm install --frozen-lockfile || (yes | pnpm approve-builds && pnpm install --frozen-lockfile)
 RUN ./node_modules/.bin/prisma generate
 
-# Operational image used only through the Compose "tools" profile.
-FROM deps AS tools
 COPY src ./src
 COPY scripts ./scripts
-COPY package.json ./
+COPY ["Sample Laporan TA.pdf", "./"]
+COPY docker-entrypoint.sh /usr/local/bin/neocentral
 
-# Strip devDependencies before copying to runner
-FROM deps AS prod-deps
-RUN pnpm prune --prod
+RUN chmod +x /usr/local/bin/neocentral \
+  && mkdir -p uploads logs \
+  && chown -R node:node /app
 
-# ── Stage 2: prod image ────────────────────────────────────────
-FROM node:22-alpine AS runner
-WORKDIR /app
-
-RUN apk add --no-cache curl
-
-# Non-root user
-RUN addgroup -S appgroup && adduser -S appuser -G appgroup
-
-# Copy pruned node_modules + generated Prisma client
-COPY --from=prod-deps /app/node_modules ./node_modules
-COPY --from=prod-deps /app/prisma ./prisma
-# Generated client lives in src/generated/prisma (custom output in schema.prisma)
-COPY --from=prod-deps /app/src/generated ./src/generated
-
-# Copy source
-COPY src ./src
-COPY package.json ./
-
-RUN mkdir -p uploads && chown -R appuser:appgroup /app
-
-USER appuser
+USER node
 EXPOSE 3000
 
 HEALTHCHECK --interval=30s --timeout=10s --start-period=30s --retries=3 \
   CMD curl -f http://localhost:3000/health || exit 1
 
-CMD ["node", "src/server.js"]
+ENTRYPOINT ["neocentral"]
+CMD ["start"]
