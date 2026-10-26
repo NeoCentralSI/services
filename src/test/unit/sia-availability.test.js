@@ -7,7 +7,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
  * working on the flags the Admin entered.
  */
 const { siaClient, siaStore, eligibility } = vi.hoisted(() => ({
-  siaClient: { fetchStudentsFull: vi.fn(), fetchSemesterEnrollments: vi.fn(), hashStudent: vi.fn() },
+  siaClient: { fetchAcademicRecords: vi.fn(), hashStudent: vi.fn() },
   siaStore: { saveStudents: vi.fn(), saveSyncStatus: vi.fn(), cleanupObsoleteStudents: vi.fn(), getSyncStatus: vi.fn(async () => ({ lastRun: null })), getAllCachedStudents: vi.fn(async () => []) },
   eligibility: { applySiaEnrollments: vi.fn(), getPeriodFlagCoverage: vi.fn(async () => null) },
 }));
@@ -45,11 +45,10 @@ describe("SIA belum dikonfigurasi (SIA_BASE_URL kosong)", () => {
   it("the scheduled sync is skipped without an error, with one log line, and reads nothing", async () => {
     const log = vi.spyOn(console, "log").mockImplementation(() => {});
     const result = await runSiaSync();
-    expect(result).toEqual({ skipped: true, reason: "not_configured" });
+    expect(result).toEqual({ skipped: true, reason: "not_configured", message: "Sinkronisasi SIA dilewati: alamat SIA belum diatur." });
     expect(log).toHaveBeenCalledTimes(1);
     expect(log.mock.calls[0][0]).toMatch(/dilewati/);
-    expect(siaClient.fetchStudentsFull).not.toHaveBeenCalled();
-    expect(siaClient.fetchSemesterEnrollments).not.toHaveBeenCalled();
+    expect(siaClient.fetchAcademicRecords).not.toHaveBeenCalled();
     expect(siaStore.saveSyncStatus).not.toHaveBeenCalled();
     log.mockRestore();
   });
@@ -58,7 +57,7 @@ describe("SIA belum dikonfigurasi (SIA_BASE_URL kosong)", () => {
     const next = vi.fn();
     await controller.triggerSiaSync({}, res(), next);
     expect(next.mock.calls[0][0]).toMatchObject({ statusCode: 400, message: "Sinkronisasi SIA belum tersedia." });
-    expect(siaClient.fetchStudentsFull).not.toHaveBeenCalled();
+    expect(siaClient.fetchAcademicRecords).not.toHaveBeenCalled();
 
     const statusRes = res();
     await controller.siaSyncStatus({}, statusRes, vi.fn());
@@ -68,20 +67,20 @@ describe("SIA belum dikonfigurasi (SIA_BASE_URL kosong)", () => {
   it("the cached roster does not fall back to SIA", async () => {
     const out = res();
     await controller.getCachedStudents({}, out, vi.fn());
-    expect(siaClient.fetchStudentsFull).not.toHaveBeenCalled();
+    expect(siaClient.fetchAcademicRecords).not.toHaveBeenCalled();
     expect(out.json).toHaveBeenCalledWith({ success: true, count: 0, data: [] });
   });
 
   it("with SIA_BASE_URL set the sync runs as before", async () => {
     process.env.SIA_BASE_URL = "http://sia.test";
-    siaClient.fetchStudentsFull.mockResolvedValue([]);
+    siaClient.fetchAcademicRecords.mockResolvedValue({ period: null, data: [] });
     vi.spyOn(console, "log").mockImplementation(() => {});
     vi.spyOn(console, "warn").mockImplementation(() => {});
     vi.spyOn(console, "error").mockImplementation(() => {});
     // The rest of the sync needs the database (not mocked here); what matters is that SIA is read.
     const result = await runSiaSync().catch(() => null);
     expect(result?.skipped).toBeUndefined();
-    expect(siaClient.fetchStudentsFull).toHaveBeenCalled();
+    expect(siaClient.fetchAcademicRecords).toHaveBeenCalled();
     vi.restoreAllMocks();
   });
 });

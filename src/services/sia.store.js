@@ -59,6 +59,8 @@ export async function saveStudents(students) {
 }
 
 export async function saveSyncStatus(status) {
+  // Replace the whole summary: fields of an earlier summary shape must not linger.
+  await redisClient.del(statusKey);
   await redisClient.hSet(statusKey, {
     ...status,
     lastRun: status.lastRun?.toISOString?.() || status.lastRun,
@@ -67,18 +69,6 @@ export async function saveSyncStatus(status) {
 
 export async function getSyncStatus() {
   return redisClient.hGetAll(statusKey);
-}
-
-export async function getCachedStudent(nim) {
-  if (!nim) return null;
-  const useJson = await serverHasJson();
-  if (useJson) {
-    const val = await redisClient.json.get(studentKey(nim), { path: "$" });
-    return Array.isArray(val) ? val[0] : val;
-  }
-  const raw = await redisClient.get(studentKey(nim));
-  if (!raw) return null;
-  try { return JSON.parse(raw); } catch { return null; }
 }
 
 export async function getAllCachedStudents() {

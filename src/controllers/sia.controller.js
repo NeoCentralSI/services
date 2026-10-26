@@ -1,6 +1,6 @@
 import { getSyncStatus, getAllCachedStudents } from "../services/sia.store.js";
 import { runSiaSync } from "../services/sia.sync.job.js";
-import { fetchStudentsFull } from "../services/sia.client.js";
+import { fetchAcademicRecords } from "../services/sia.client.js";
 import { getPeriodFlagCoverage } from "../services/research-method/eligibility.service.js";
 import { assertSiaConfigured, isSiaConfigured } from "../helpers/sia-availability.helper.js";
 
@@ -9,13 +9,13 @@ export async function triggerSiaSync(req, res, next) {
     // Refused with "Sinkronisasi SIA belum tersedia." while SIA_BASE_URL is empty.
     assertSiaConfigured();
     const summary = await runSiaSync();
-    res.json({ success: true, message: "SIA sync triggered", summary });
+    res.json({ success: true, message: "Sinkronisasi SIA selesai", summary });
   } catch (err) {
     const message = err?.message || String(err);
-    // Surface a UAT-friendly hint when the external SIA host is down.
+    // A hint when SIA cannot be reached.
     if (/fetch failed|ECONNREFUSED|timed out|SIA fetch failed/i.test(message)) {
       err.message =
-        `${message}. Service SIA eksternal tidak terjangkau. Untuk UAT/lokal set SIA_MOCK=true di services/.env lalu restart backend.`;
+        `${message}. SIA tidak dapat dihubungi. Untuk uji lokal jalankan dummy-SIA atau set SIA_MOCK=true, lalu mulai ulang backend.`;
       err.statusCode = err.statusCode || 503;
     }
     next(err);
@@ -73,7 +73,7 @@ export async function getCachedStudents(req, res, next) {
     if ((!data || data.length === 0) && isSiaConfigured()) {
       console.log("ℹ️  Redis cache empty, reading from SIA source directly...");
       try {
-        data = await fetchStudentsFull(1);
+        data = (await fetchAcademicRecords(1)).data;
       } catch (siaErr) {
         console.warn("⚠️  SIA fetch also failed:", siaErr.message);
         data = [];

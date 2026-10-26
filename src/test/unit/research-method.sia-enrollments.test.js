@@ -1,8 +1,8 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 /**
- * SIA only reads: per-semester flags come from `GET /enrollments` and are
- * written with source `sia`; SIA is the authority for the students it lists.
+ * SIA only reads: per-semester flags come from the current courses of `GET /students` (K45)
+ * and are written with source `sia`; SIA is the authority for the students it lists.
  */
 const { env } = vi.hoisted(() => ({
   env: { SIA_MOCK: false, SIA_BASE_URL: "http://sia.test/", SIA_API_TOKEN: "token", SIA_FETCH_TIMEOUT: 1000 },
@@ -11,7 +11,7 @@ vi.mock("../../config/env.js", () => ({ ENV: env }));
 vi.mock("../../config/prisma.js", () => ({ default: {} }));
 
 const { applySiaEnrollments, setAdminPeriodFlags, followSiaPeriodFlags } = await import("../../services/research-method/eligibility.service.js");
-const { fetchSemesterEnrollments } = await import("../../services/sia.client.js");
+const { fetchAcademicRecords } = await import("../../services/sia.client.js");
 
 const CAPTURED = new Date("2026-10-14T00:00:00.000Z");
 
@@ -71,26 +71,42 @@ describe("applySiaEnrollments", () => {
   });
 });
 
-describe("fetchSemesterEnrollments", () => {
+describe("fetchAcademicRecords", () => {
   beforeEach(() => {
     vi.restoreAllMocks();
     env.SIA_MOCK = false;
   });
 
-  it("reads GET /enrollments for the period with the API token", async () => {
-    const rows = [{ nim: "2211528001", takesResearchMethod: true, takesThesis: false }];
-    const fetchMock = vi.spyOn(globalThis, "fetch").mockResolvedValue(new Response(JSON.stringify({ data: rows }), { status: 200 }));
-    expect(await fetchSemesterEnrollments({ academicYear: "2026/2027", semester: "ganjil" }, 1)).toEqual(rows);
+  it("reads GET /students with the API token and returns period and records", async () => {
+    const body = { success: true, period: { academicYear: "2026/2027", semester: "ganjil" }, count: 1, data: [{ nim: "2211528001" }] };
+    const fetchMock = vi.spyOn(globalThis, "fetch").mockResolvedValue(new Response(JSON.stringify(body), { status: 200 }));
+    expect(await fetchAcademicRecords(1)).toEqual({ period: body.period, data: body.data });
     const [url, init] = fetchMock.mock.calls[0];
-    expect(url).toBe("http://sia.test/enrollments?academicYear=2026%2F2027&semester=ganjil");
+    expect(url).toBe("http://sia.test/students?page=1&pageSize=500");
     expect(init.headers["x-api-token"]).toBe("token");
   });
 
+  it("follows the pages when SIA paginates", async () => {
+    const page = (n, nims) => new Response(JSON.stringify({ period: { academicYear: "2026/2027", semester: "ganjil" }, data: nims.map((nim) => ({ nim })), pagination: { page: n, totalPages: 2 } }), { status: 200 });
+    const fetchMock = vi.spyOn(globalThis, "fetch").mockResolvedValueOnce(page(1, ["a", "b"])).mockResolvedValueOnce(page(2, ["c"]));
+    expect((await fetchAcademicRecords(1)).data.map((r) => r.nim)).toEqual(["a", "b", "c"]);
+    expect(fetchMock.mock.calls[1][0]).toBe("http://sia.test/students?page=2&pageSize=500");
+  });
+
   it("fails on an error status or a body without data, so the sync can report it", async () => {
-    vi.spyOn(globalThis, "fetch").mockResolvedValueOnce(new Response("Periode tidak dikenal", { status: 404 }));
-    await expect(fetchSemesterEnrollments({ academicYear: "2030/2031", semester: "ganjil" }, 1)).rejects.toThrow(/404/);
+    vi.spyOn(globalThis, "fetch").mockResolvedValueOnce(new Response("Unauthorized", { status: 401 }));
+    await expect(fetchAcademicRecords(1)).rejects.toThrow(/401/);
     vi.spyOn(globalThis, "fetch").mockResolvedValueOnce(new Response(JSON.stringify({ rows: [] }), { status: 200 }));
-    await expect(fetchSemesterEnrollments({ academicYear: "2026/2027", semester: "ganjil" }, 1)).rejects.toThrow(/missing data/);
+    await expect(fetchAcademicRecords(1)).rejects.toThrow(/missing data/);
+  });
+
+  it("in mock mode reads the fixture of the same shape as dummy-SIA", async () => {
+    env.SIA_MOCK = true;
+    const result = await fetchAcademicRecords(1);
+    expect(result.period).toEqual({ academicYear: "2026/2027", semester: "ganjil" });
+    expect(result.data.length).toBeGreaterThan(0);
+    expect(result.data[0]).toHaveProperty("currentCourses");
+    env.SIA_MOCK = false;
   });
 });
 
@@ -139,7 +155,7 @@ describe("flags set by the Admin", () => {
     const client = adminClient({ id: "snap-1", eligibilitySource: "admin", thesisCourseSource: "admin" });
     const fetchEnrollments = vi.fn().mockResolvedValue([{ nim: "2211528001", takesResearchMethod: false, takesThesis: true }]);
     const result = await followSiaPeriodFlags("s1", "ay-1", { client, fetchEnrollments, now: CAPTURED, env: { SIA_BASE_URL: "http://sia.test" } });
-    expect(fetchEnrollments).toHaveBeenCalledWith({ academicYear: "2026/2027", semester: "ganjil" });
+    expect(fetchEnrollments).toHaveBeenCalledWith(expect.objectContaining({ year: "2026/2027", semester: "ganjil" }));
     expect(result.fromSia).toBe(true);
     expect(result.snapshot).toMatchObject({ eligibleResearchMethod: false, eligibilitySource: "sia", takingThesisCourse: true, thesisCourseSource: "sia" });
   });

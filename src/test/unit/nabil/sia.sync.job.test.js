@@ -15,7 +15,7 @@ const { mockPrisma, mockSiaClient, mockSiaStore } = vi.hoisted(() => ({
     },
     $transaction: vi.fn(),
   },
-  mockSiaClient: { fetchStudentsFull: vi.fn(), hashStudent: vi.fn() },
+  mockSiaClient: { fetchAcademicRecords: vi.fn(), hashStudent: vi.fn() },
   mockSiaStore: {
     saveStudents: vi.fn(),
     saveSyncStatus: vi.fn(),
@@ -78,9 +78,9 @@ function arrangeSync({
   cpls = [CPL_V1, CPL_V2],
   existingScores = [],
 } = {}) {
-  mockSiaClient.fetchStudentsFull.mockResolvedValue([payload]);
+  mockSiaClient.fetchAcademicRecords.mockResolvedValue({ period: null, data: [payload] });
   mockPrisma.user.findMany
-    .mockResolvedValueOnce([{ id: "student-1", identityNumber: payload.nim }])
+    .mockResolvedValueOnce([{ id: "student-1", identityNumber: payload.nim, student: { status: "active", gpa: null } }])
     .mockResolvedValueOnce([
       {
         id: "student-1",
@@ -151,17 +151,17 @@ describe("SIA CPL synchronization", () => {
     expect(summary.cplUpdated).toBe(1);
   });
 
-  it("requires a description and reports missing descriptions", async () => {
+  it("K45: the description is optional; a score with only the code (cplCode) is written", async () => {
     arrangeSync({
       payload: studentPayload({
-        cplScores: [{ code: "CPL-01", score: 80, inputAt: "2026-04-20T10:00:00.000Z" }],
+        cplScores: [{ cplCode: "CPL-01", score: 80, inputAt: "2026-04-20T10:00:00.000Z" }],
       }),
     });
 
     const summary = await runSiaSync();
 
-    expect(summary.cplSkippedMissingDescription).toBe(1);
-    expect(mockPrisma.studentCplScore.create).not.toHaveBeenCalled();
+    expect(summary.cplCreated).toBe(1);
+    expect(mockPrisma.studentCplScore.create).toHaveBeenCalledWith({ data: expect.objectContaining({ cplId: "cpl-v2", score: 80 }) });
   });
 
   it("rejects a description that does not match the selected version", async () => {

@@ -1,355 +1,81 @@
 import crypto from "crypto";
+import fs from "fs";
+import path from "path";
+import { fileURLToPath } from "url";
 import { ENV } from "../config/env.js";
 
-const defaultHeaders = {
-  "Content-Type": "application/json",
-};
+const __dirname = path.dirname(fileURLToPath(import.meta.url));
+
+/** The same shape as dummy-SIA's `GET /students`, read when `SIA_MOCK` is on (and by the tests). */
+export const SIA_MOCK_FIXTURE = path.resolve(__dirname, "../test/fixtures/sia-students.json");
+
+/** Records asked per page; a SIA without pagination ignores it and returns everything. */
+const PAGE_SIZE = 500;
+const MAX_PAGES = 200;
 
 const withTimeout = async (promise, ms) => {
-  const timeout = new Promise((_, reject) =>
-    setTimeout(() => reject(new Error("SIA request timed out")), ms)
-  );
-  return Promise.race([promise, timeout]);
+  let timer;
+  const timeout = new Promise((_, reject) => {
+    timer = setTimeout(() => reject(new Error("SIA request timed out")), ms);
+  });
+  try {
+    return await Promise.race([promise, timeout]);
+  } finally {
+    clearTimeout(timer);
+  }
 };
 
-/**
- * Fetch all students with full data from SIA API
- * Supports retry with exponential backoff
- */
-export async function fetchStudentsFull(retries = 3) {
-  if (ENV.SIA_MOCK) {
-    console.log("⚡ SIA MOCK MODE: Returning dummy student data");
-    return [
-      // ── Grup 1: mengambil Metode Penelitian
-      {
-        nim: "2211522029",
-        name: "Nofaldi",
-        sksCompleted: 130,
-        mandatoryCoursesCompleted: true,
-        mkwuCompleted: true,
-        internshipCompleted: true,
-        kknCompleted: true,
-        currentSemester: 8,
-        currentSemesterCourses: [
-          { code: "TIF4101", name: "Tugas Akhir", credits: 4 },
-          { code: "TIF4102", name: "Metodologi Penelitian", credits: 3 },
-        ],
-      },
-      {
-        nim: "2211522055",
-        name: "Eka Fitriani",
-        sksCompleted: 130,
-        mandatoryCoursesCompleted: true,
-        mkwuCompleted: true,
-        internshipCompleted: true,
-        kknCompleted: true,
-        currentSemester: 8,
-        currentSemesterCourses: [
-          { code: "TIF4102", name: "Metodologi Penelitian", credits: 3 },
-        ],
-      },
-      {
-        nim: "2211521054",
-        name: "Dedi Kurniawan",
-        sksCompleted: 130,
-        mandatoryCoursesCompleted: true,
-        mkwuCompleted: true,
-        internshipCompleted: true,
-        kknCompleted: true,
-        currentSemester: 8,
-        currentSemesterCourses: [
-          { code: "TIF4102", name: "Metodologi Penelitian", credits: 3 },
-        ],
-      },
-      {
-        nim: "2211523053",
-        name: "Cindy Permata Sari",
-        sksCompleted: 130,
-        mandatoryCoursesCompleted: true,
-        mkwuCompleted: true,
-        internshipCompleted: true,
-        kknCompleted: true,
-        currentSemester: 8,
-        currentSemesterCourses: [
-          { code: "TIF4102", name: "Metodologi Penelitian", credits: 3 },
-        ],
-      },
-      {
-        nim: "2211522052",
-        name: "Budi Hartono",
-        sksCompleted: 130,
-        mandatoryCoursesCompleted: true,
-        mkwuCompleted: true,
-        internshipCompleted: true,
-        kknCompleted: true,
-        currentSemester: 8,
-        currentSemesterCourses: [
-          { code: "TIF4102", name: "Metodologi Penelitian", credits: 3 },
-        ],
-      },
-      {
-        nim: "2211523034",
-        name: "Muhammad Fariz",
-        sksCompleted: 122,
-        mandatoryCoursesCompleted: true,
-        mkwuCompleted: true,
-        internshipCompleted: true,
-        kknCompleted: true,
-        currentSemester: 8,
-        currentSemesterCourses: [
-          { code: "TIF4102", name: "Metodologi Penelitian", credits: 3 },
-        ],
-      },
-      {
-        nim: "2211522018",
-        name: "Nabil Rizki Navisa",
-        sksCompleted: 137,
-        mandatoryCoursesCompleted: true,
-        mkwuCompleted: true,
-        internshipCompleted: true,
-        kknCompleted: true,
-        currentSemester: 8,
-        currentSemesterCourses: [
-          { code: "TIF4101", name: "Tugas Akhir", credits: 4 },
-          { code: "TIF4102", name: "Metodologi Penelitian", credits: 3 },
-        ],
-      },
-      {
-        nim: "2211523030",
-        name: "Khalied Nauly Maturino",
-        sksCompleted: 141,
-        mandatoryCoursesCompleted: true,
-        mkwuCompleted: true,
-        internshipCompleted: true,
-        kknCompleted: true,
-        currentSemester: 8,
-        currentSemesterCourses: [
-          { code: "TIF4102", name: "Metodologi Penelitian", credits: 3 },
-        ],
-      },
-      {
-        nim: "2211522036",
-        name: "Mustafa Fathur Rahman",
-        sksCompleted: 137,
-        mandatoryCoursesCompleted: true,
-        mkwuCompleted: true,
-        internshipCompleted: true,
-        kknCompleted: true,
-        currentSemester: 8,
-        currentSemesterCourses: [
-          { code: "TIF4102", name: "Metodologi Penelitian", credits: 3 },
-        ],
-      },
-      {
-        nim: "2211521020",
-        name: "Muhammad Nouval Habibie",
-        sksCompleted: 137,
-        mandatoryCoursesCompleted: true,
-        mkwuCompleted: true,
-        internshipCompleted: true,
-        kknCompleted: true,
-        currentSemester: 8,
-        currentSemesterCourses: [
-          { code: "TIF4102", name: "Metodologi Penelitian", credits: 3 },
-        ],
-      },
-      {
-        nim: "2211523012",
-        name: "Syauqi",
-        sksCompleted: 125,
-        mandatoryCoursesCompleted: true,
-        mkwuCompleted: true,
-        internshipCompleted: true,
-        kknCompleted: true,
-        currentSemester: 8,
-        currentSemesterCourses: [
-          { code: "TIF4102", name: "Metodologi Penelitian", credits: 3 },
-        ],
-      },
-      {
-        nim: "2211522103",
-        name: "Test Tanpa Thesis",
-        sksCompleted: 130,
-        mandatoryCoursesCompleted: true,
-        mkwuCompleted: true,
-        internshipCompleted: true,
-        kknCompleted: true,
-        currentSemester: 8,
-        currentSemesterCourses: [
-          { code: "TIF4102", name: "Metodologi Penelitian", credits: 3 },
-        ],
-      },
-      // ── Grup 2: Sudah TA (mengambil Tugas Akhir + Metode Penelitian) ──
-      {
-        nim: "2211523022",
-        name: "Daffa Agustian Saadi",
-        sksCompleted: 137,
-        mandatoryCoursesCompleted: true,
-        mkwuCompleted: true,
-        internshipCompleted: true,
-        kknCompleted: true,
-        currentSemester: 8,
-        currentSemesterCourses: [
-          { code: "TIF4101", name: "Tugas Akhir", credits: 4 },
-          { code: "TIF4102", name: "Metodologi Penelitian", credits: 3 },
-        ],
-      },
-      {
-        nim: "2211522028",
-        name: "Ilham",
-        sksCompleted: 137,
-        mandatoryCoursesCompleted: true,
-        mkwuCompleted: true,
-        internshipCompleted: true,
-        kknCompleted: true,
-        currentSemester: 8,
-        currentSemesterCourses: [
-          { code: "TIF4101", name: "Tugas Akhir", credits: 4 },
-          { code: "TIF4102", name: "Metodologi Penelitian", credits: 3 },
-        ],
-      },
-      {
-        nim: "2211522101",
-        name: "Test Ganti Topik",
-        sksCompleted: 130,
-        mandatoryCoursesCompleted: true,
-        mkwuCompleted: true,
-        internshipCompleted: true,
-        kknCompleted: true,
-        currentSemester: 8,
-        currentSemesterCourses: [
-          { code: "TIF4101", name: "Tugas Akhir", credits: 4 },
-          { code: "TIF4102", name: "Metodologi Penelitian", credits: 3 },
-        ],
-      },
-      {
-        nim: "2211522102",
-        name: "Test Ganti Dospem",
-        sksCompleted: 130,
-        mandatoryCoursesCompleted: true,
-        mkwuCompleted: true,
-        internshipCompleted: true,
-        kknCompleted: true,
-        currentSemester: 8,
-        currentSemesterCourses: [
-          { code: "TIF4101", name: "Tugas Akhir", credits: 4 },
-          { code: "TIF4102", name: "Metodologi Penelitian", credits: 3 },
-        ],
-      },
-      // ── Grup 3: Belum eligible (SKS belum cukup) ──
-      {
-        nim: "2311523026",
-        name: "Dimas",
-        sksCompleted: 99,
-        mandatoryCoursesCompleted: false,
-        mkwuCompleted: false,
-        internshipCompleted: false,
-        kknCompleted: false,
-        currentSemester: 5,
-        currentSemesterCourses: [],
-      },
-      {
-        nim: "2411522001",
-        name: "John",
-        sksCompleted: 60,
-        mandatoryCoursesCompleted: false,
-        mkwuCompleted: false,
-        internshipCompleted: false,
-        kknCompleted: false,
-        currentSemester: 3,
-        currentSemesterCourses: [],
-      },
-    ];
-  }
-
-  if (!ENV.SIA_BASE_URL || !ENV.SIA_API_TOKEN) {
-    throw new Error("SIA_BASE_URL or SIA_API_TOKEN not configured");
-  }
-
-  const url = `${ENV.SIA_BASE_URL.replace(/\/$/, "")}/students?full=true`;
+async function fetchPage(url, retries) {
   let lastError;
-  
   for (let attempt = 1; attempt <= retries; attempt++) {
     try {
-      const req = fetch(url, {
-        headers: {
-          ...defaultHeaders,
-          "x-api-token": ENV.SIA_API_TOKEN,
-        },
-      });
-      const res = await withTimeout(req, ENV.SIA_FETCH_TIMEOUT || 10000);
-      
-      if (!res.ok) {
-        const body = await res.text();
-        throw new Error(`SIA fetch failed (${res.status}): ${body}`);
-      }
-      
+      const res = await withTimeout(
+        fetch(url, { headers: { "Content-Type": "application/json", "x-api-token": ENV.SIA_API_TOKEN } }),
+        ENV.SIA_FETCH_TIMEOUT || 10000,
+      );
+      if (!res.ok) throw new Error(`SIA fetch failed (${res.status}): ${await res.text()}`);
       const json = await res.json();
-      if (!json?.data) {
-        throw new Error("SIA response missing data");
-      }
-      
-      return json.data;
+      if (!Array.isArray(json?.data)) throw new Error("SIA response missing data");
+      return json;
     } catch (err) {
       lastError = err;
       console.warn(`⚠️  SIA fetch attempt ${attempt}/${retries} failed:`, err.message);
-      
-      // If not last attempt, wait with exponential backoff
       if (attempt < retries) {
-        const delay = Math.min(1000 * Math.pow(2, attempt - 1), 10000);
-        console.log(`⏳ Retrying in ${delay}ms...`);
-        await new Promise(resolve => setTimeout(resolve, delay));
+        await new Promise((resolve) => setTimeout(resolve, Math.min(1000 * 2 ** (attempt - 1), 10000)));
       }
     }
   }
-  
   throw lastError;
 }
 
 /**
- * Per-semester academic data (plan 10.6): `GET /enrollments?academicYear=&semester=` returns,
- * per student of that semester, whether they take Metode Penelitian and Tugas Akhir. Read only.
- * In mock mode the course lists of the mock students stand in for the semester data.
- * @returns {Promise<Array<{ nim: string, studentStatus?: string, takesResearchMethod: boolean, takesThesis: boolean }>>}
+ * The academic records of the running semester from SIA (`GET /students`, K45), as SIA sends
+ * them: `{ period, data }`. Pages are followed when SIA paginates. Retry with backoff and a
+ * timeout per request. With `SIA_MOCK` the fixture of the same shape is read.
+ * @returns {Promise<{ period: object|null, data: object[] }>}
  */
-export async function fetchSemesterEnrollments({ academicYear, semester }, retries = 3) {
+export async function fetchAcademicRecords(retries = 3) {
   if (ENV.SIA_MOCK) {
-    const students = await fetchStudentsFull(1);
-    const takes = (s, re) => (s.currentSemesterCourses ?? []).some((c) => re.test(String(c?.name ?? "")));
-    return students.map((s) => ({
-      nim: s.nim,
-      studentStatus: "aktif",
-      takesResearchMethod: takes(s, /metod(e|ologi) penelitian/i),
-      takesThesis: takes(s, /tugas akhir|skripsi/i),
-    }));
+    const json = JSON.parse(fs.readFileSync(SIA_MOCK_FIXTURE, "utf-8"));
+    return { period: json.period ?? null, data: json.data ?? [] };
   }
   if (!ENV.SIA_BASE_URL || !ENV.SIA_API_TOKEN) {
     throw new Error("SIA_BASE_URL or SIA_API_TOKEN not configured");
   }
-  const query = new URLSearchParams({ academicYear: String(academicYear), semester: String(semester) });
-  const url = `${ENV.SIA_BASE_URL.replace(/\/$/, "")}/enrollments?${query}`;
-  let lastError;
-  for (let attempt = 1; attempt <= retries; attempt++) {
-    try {
-      const res = await withTimeout(fetch(url, { headers: { ...defaultHeaders, "x-api-token": ENV.SIA_API_TOKEN } }), ENV.SIA_FETCH_TIMEOUT || 10000);
-      if (!res.ok) throw new Error(`SIA enrollments failed (${res.status}): ${await res.text()}`);
-      const json = await res.json();
-      if (!Array.isArray(json?.data)) throw new Error("SIA enrollments response missing data");
-      return json.data;
-    } catch (err) {
-      lastError = err;
-      if (attempt < retries) await new Promise((resolve) => setTimeout(resolve, Math.min(1000 * 2 ** (attempt - 1), 10000)));
-    }
+  const base = `${ENV.SIA_BASE_URL.replace(/\/$/, "")}/students`;
+  const data = [];
+  let period = null;
+  for (let page = 1; page <= MAX_PAGES; page++) {
+    const json = await fetchPage(`${base}?page=${page}&pageSize=${PAGE_SIZE}`, retries);
+    period = period ?? json.period ?? null;
+    data.push(...json.data);
+    const totalPages = Number(json.pagination?.totalPages);
+    if (!Number.isFinite(totalPages) || page >= totalPages) break;
   }
-  throw lastError;
+  return { period, data };
 }
 
-/**
- * Generate MD5 hash of student data for change detection
- */
+/** MD5 of one record, to skip unchanged records in the cache. */
 export function hashStudent(student) {
-  return crypto
-    .createHash("md5")
-    .update(JSON.stringify(student))
-    .digest("hex");
+  return crypto.createHash("md5").update(JSON.stringify(student)).digest("hex");
 }
