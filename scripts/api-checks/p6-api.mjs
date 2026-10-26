@@ -23,18 +23,18 @@ const flagsOf = async (studentId) =>
 await run("1 SIA hanya membaca", async () => {
   const oldSync = await fetch(`${SIA}/sync-ta`, { method: "POST", headers: { ...siaHeaders, "Content-Type": "application/json" }, body: "{}" });
   check("dummy-SIA: POST /sync-ta tidak ada lagi", oldSync.status === 404, oldSync.status);
-  const missing = await fetch(`${SIA}/enrollments`, { headers: siaHeaders });
-  check("dummy-SIA: /enrollments tanpa periode 400", missing.status === 400, missing.status);
-  const unknown = await fetch(`${SIA}/enrollments?academicYear=2040/2041&semester=ganjil`, { headers: siaHeaders });
-  check("dummy-SIA: periode tak dikenal 404", unknown.status === 404, unknown.status);
-  const sem = await (await fetch(`${SIA}/enrollments?academicYear=${encodeURIComponent(operational.year)}&semester=${operational.semester}`, { headers: siaHeaders })).json();
-  check("dummy-SIA: periode berjalan berisi baris per mahasiswa", Array.isArray(sem.data) && sem.data.length > 0 && "takesResearchMethod" in sem.data[0] && "takesThesis" in sem.data[0], sem.data?.length);
-  const one = await fetch(`${SIA}/enrollments/2211528015?academicYear=${encodeURIComponent(operational.year)}&semester=${operational.semester}`, { headers: siaHeaders });
-  check("dummy-SIA: /enrollments/:nim untuk satu mahasiswa", one.status === 200, one.status);
+  // K45: one route, one shape. The per-semester and per-student routes are gone.
+  for (const path of ["/enrollments", `/enrollments/2211528015?academicYear=${encodeURIComponent(operational.year)}&semester=${operational.semester}`, "/students/2211528015", "/students/2211528015/current-courses"]) {
+    const res = await fetch(`${SIA}${path}`, { headers: siaHeaders });
+    check(`dummy-SIA: ${path.split("?")[0]} tidak ada lagi`, res.status === 404, res.status);
+  }
   const students = await fetch(`${SIA}/students`, { headers: siaHeaders });
   const sj = await students.json();
-  const first = (sj.data ?? sj)[0] ?? {};
-  check("dummy-SIA: GET /students tetap berbentuk lama (tanpa penanda TA)", students.status === 200 && "nim" in first && !("takesThesis" in first), Object.keys(first).slice(0, 8));
+  const first = sj.data?.[0] ?? {};
+  check("dummy-SIA: GET /students memuat period dan rekam akademik semester berjalan", students.status === 200 && sj.period?.academicYear === operational.year && sj.period?.semester === operational.semester && Array.isArray(first.currentCourses) && "gpa" in first && "studentStatus" in first, { period: sj.period, keys: Object.keys(first).slice(0, 8) });
+  // The flag NeoCentral derives from the current courses (Tugas Akhir = IF5001).
+  const takesThesisOf = (nim) => (sj.data.find((r) => r.nim === nim)?.currentCourses ?? []).some((c) => c.code === "IF5001");
+  const sem = { data: sj.data };
 
   const gone = await api(ADMIN, "POST", "/master-data-ta/sync-sia");
   check("central: POST /master-data-ta/sync-sia tidak ada lagi", gone.status === 404, gone.status);
@@ -53,11 +53,10 @@ await run("1 SIA hanya membaca", async () => {
 
   const sync = await api(ADMIN, "POST", "/sia/sync");
   const s = sync.json?.summary ?? {};
-  check("sinkronisasi SIA berhasil dan membaca penanda semester", sync.status === 200 && !s.periodFlagsError && s.periodFlagsUpdated + s.periodSnapshotsCreated > 0,
-    { status: sync.status, created: s.periodSnapshotsCreated, updated: s.periodFlagsUpdated, unknown: s.periodFlagsUnknownStudents, err: s.periodFlagsError });
+  check("sinkronisasi SIA berhasil dan membaca penanda semester", sync.status === 200 && !s.periodFlagsError && s.periodFlagsUpdated + s.periodFlagsCreated > 0 && Number(s.periodFlagsSkipped) === 0,
+    { status: sync.status, created: s.periodFlagsCreated, updated: s.periodFlagsUpdated, skipped: s.periodFlagsSkipped, err: s.periodFlagsError });
   const after = await flagsOf(sidNaik);
-  const siaRow = sem.data.find((r) => r.nim === "2211528015");
-  check("SIA berwenang atas mahasiswa yang didaftarnya: penanda kembali ke nilai SIA", after?.thesisCourseSource === "sia" && after?.takingThesisCourse === siaRow?.takesThesis, { source: after?.thesisCourseSource, value: after?.takingThesisCourse, sia: siaRow?.takesThesis });
+  check("SIA berwenang atas mahasiswa yang didaftarnya: penanda kembali ke nilai SIA", after?.thesisCourseSource === "sia" && after?.takingThesisCourse === takesThesisOf("2211528015"), { source: after?.thesisCourseSource, value: after?.takingThesisCourse, sia: takesThesisOf("2211528015") });
   if (sidOutside) {
     const kept = await flagsOf(sidOutside);
     check("mahasiswa yang tidak didaftar SIA mempertahankan penandanya", kept?.eligibleResearchMethod === true && kept?.eligibilitySource === "devtools", kept?.eligibilitySource);

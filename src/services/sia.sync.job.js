@@ -1,144 +1,140 @@
-import { fetchSemesterEnrollments, fetchStudentsFull, hashStudent } from "./sia.client.js";
+/**
+ * SIA sync (K45). SIA reports the running semester only; NeoCentral keeps the history in its
+ * semester snapshots. Steps, each on the normalized records of `sia.normalize.js`:
+ *   1. academic data (SKS, course flags, semester, cohort) and GPA;
+ *   2. student status, through `applyStudentStatusChange` (K40), so Cuti and Drop Out act on the
+ *      thesis as when the Admin changes them;
+ *   3. semester flags (taking Metode Penelitian / Tugas Akhir), only when SIA's `period` is the
+ *      running academic year of NeoCentral; flags the Admin set by hand stay (K36);
+ *   4. CPL scores (manual scores stay).
+ * The sync only writes data (decisions 12–13): moving a thesis on is never done here. One failed
+ * student never stops the others.
+ */
+import { fetchAcademicRecords, hashStudent } from "./sia.client.js";
 import { saveStudents, saveSyncStatus, cleanupObsoleteStudents } from "./sia.store.js";
 import prisma from "../config/prisma.js";
 import { applySiaEnrollments } from "./research-method/eligibility.service.js";
 import { resolveOperationalAcademicYear } from "../helpers/academicYear.helper.js";
 import { isSiaConfigured } from "../helpers/sia-availability.helper.js";
+import { normalizeSiaResponse } from "./sia.normalize.js";
+import { announceStudentStatusChange, applyStudentStatusChange } from "./thesisLifecycle.service.js";
 
-/**
- * Main SIA sync job - fetches student data and updates cache + database
- */
+const emptySummary = (startedAt) => ({
+  lastRun: startedAt,
+  period: "",
+  fetched: 0,
+  notFound: 0,
+  updated: 0,
+  skipped: 0,
+  dbUpdated: 0,
+  gpaChanged: 0,
+  statusChanged: 0,
+  failedStudents: 0,
+  periodFlagsCreated: 0,
+  periodFlagsUpdated: 0,
+  periodFlagsKeptAdmin: 0,
+  periodFlagsSkipped: 0,
+  periodMismatch: "",
+  periodFlagsError: "",
+  cplFetched: 0,
+  cplCreated: 0,
+  cplUpdated: 0,
+  cplSkippedNoStudent: 0,
+  cplSkippedNameMismatch: 0,
+  cplSkippedUnknownCode: 0,
+  cplUnmatchedCodes: 0,
+  cplSkippedProtected: 0,
+  cplUnchanged: 0,
+  cplSkippedMissingEnrollmentYear: 0,
+  cplSkippedNoCurriculum: 0,
+  cplSkippedAmbiguousCurriculum: 0,
+  cplSkippedDescriptionMismatch: 0,
+  cplSkippedNoActiveVersion: 0,
+  cplSkippedAmbiguousActiveVersion: 0,
+  cplSkippedMultipleExistingVersions: 0,
+  cplSkippedInvalidScore: 0,
+  cplSkippedInvalidTimestamp: 0,
+  cplSkippedStaleData: 0,
+  cplSkippedTimestampConflict: 0,
+  cleaned: 0,
+  error: "",
+  durationMs: 0,
+});
+
+const periodLabel = (p) => (p ? `${p.academicYear} ${p.semester}` : "tidak diketahui");
+
 export async function runSiaSync({ siaConfigured = isSiaConfigured() } = {}) {
   // Without SIA_BASE_URL nothing is read; one log line, no error, nothing stored.
   if (!siaConfigured) {
     console.log("⏭️  Sinkronisasi SIA dilewati: SIA_BASE_URL kosong (SIA belum tersedia).");
-    return { skipped: true, reason: "not_configured" };
+    return { skipped: true, reason: "not_configured", message: "Sinkronisasi SIA dilewati: alamat SIA belum diatur." };
   }
   const startedAt = new Date();
-  let summary = {
-    lastRun: startedAt,
-    fetched: 0,
-    updated: 0,
-    skipped: 0,
-    dbUpdated: 0,
-    periodSnapshotsCreated: 0,
-    periodFlagsUpdated: 0,
-    periodFlagsUnknownStudents: 0,
-    periodFlagsKeptAdmin: 0,
-    periodFlagsError: "",
-    cplFetched: 0,
-    cplCreated: 0,
-    cplUpdated: 0,
-    cplSkippedNoStudent: 0,
-    cplSkippedNameMismatch: 0,
-    cplSkippedUnknownCode: 0,
-    cplUnmatchedCodes: 0,
-    cplSkippedProtected: 0,
-    cplUnchanged: 0,
-    cplSkippedMissingEnrollmentYear: 0,
-    cplSkippedNoCurriculum: 0,
-    cplSkippedAmbiguousCurriculum: 0,
-    cplSkippedMissingDescription: 0,
-    cplSkippedDescriptionMismatch: 0,
-    cplSkippedNoActiveVersion: 0,
-    cplSkippedAmbiguousActiveVersion: 0,
-    cplSkippedMultipleExistingVersions: 0,
-    cplSkippedInvalidScore: 0,
-    cplSkippedInvalidTimestamp: 0,
-    cplSkippedStaleData: 0,
-    cplSkippedTimestampConflict: 0,
-    cleaned: 0,
-    error: "",
-    durationMs: 0,
-  };
+  const summary = emptySummary(startedAt);
 
   try {
     console.log("🔄 Starting SIA sync...");
+    const raw = await fetchAcademicRecords(3);
+    const { period, students: records } = normalizeSiaResponse(raw);
+    summary.period = periodLabel(period);
+    summary.fetched = records.length;
+    console.log(`✅ Fetched ${records.length} students from SIA (${summary.period})`);
 
-    // Fetch with retry logic
-    const data = await fetchStudentsFull(3);
-    summary.fetched = Array.isArray(data) ? data.length : 0;
-    console.log(`✅ Fetched ${summary.fetched} students from SIA`);
-
-    // Prepare data with hash for change detection
-    const stamped = data.map((student) => ({
-      nim: student.nim,
-      data: student,
-      hash: hashStudent(student),
-      fetchedAt: startedAt.toISOString(),
-    }));
-
-    // Save to Redis cache (non-blocking — sync continues even if Redis fails)
+    // Cache of SIA's own records (non-blocking).
     try {
+      const stamped = raw.data.map((row) => ({ nim: String(row?.nim ?? ""), data: row, hash: hashStudent(row), fetchedAt: startedAt.toISOString() })).filter((r) => r.nim);
       const { updated, skipped } = await saveStudents(stamped);
       summary.updated = updated;
       summary.skipped = skipped;
-      console.log(`💾 Cache: ${updated} updated, ${skipped} skipped`);
     } catch (redisErr) {
       console.warn("⚠️  Redis cache save failed (continuing sync):", redisErr.message);
     }
 
-    // Batch update database student academic fields
-    const dbResult = await updateStudentAcademicBatch(stamped);
-    summary.dbUpdated = dbResult.updated;
-    console.log(`🗄️  Database: ${dbResult.updated} students updated`);
+    const users = await prisma.user.findMany({
+      where: { identityNumber: { in: records.map((r) => r.nim) }, student: { isNot: null } },
+      select: { id: true, identityNumber: true, student: { select: { status: true, gpa: true } } },
+    });
+    const userOf = new Map(users.map((u) => [u.identityNumber, u]));
+    summary.notFound = records.filter((r) => !userOf.has(r.nim)).length;
 
-    // Per-semester flags (plan 10.6): read from SIA's semester endpoint for the operational
-    // period. A failure here never stops the rest of the sync.
+    // 1 + 2: academic data, GPA and status, one student at a time.
+    const academic = await applyAcademicRecords(records, userOf);
+    summary.dbUpdated = academic.updated;
+    summary.gpaChanged = academic.gpaChanged;
+    summary.statusChanged = academic.statusChanged;
+    summary.failedStudents = academic.failed;
+
+    // 3: semester flags, only for NeoCentral's running semester.
     try {
-      const flags = await syncPeriodFlags(startedAt);
-      summary.periodSnapshotsCreated = flags.created;
+      const flags = await syncPeriodFlags(period, records, startedAt);
+      summary.periodFlagsCreated = flags.created;
       summary.periodFlagsUpdated = flags.updated;
-      summary.periodFlagsUnknownStudents = flags.unknownStudents;
-      // Flags the Admin set by hand are not overwritten.
-      summary.periodFlagsKeptAdmin = flags.keptAdmin ?? 0;
-      console.log(`🗓️  Semester flags ${flags.period}: ${flags.created} created, ${flags.updated} updated, ${flags.unknownStudents} NIM unknown, ${summary.periodFlagsKeptAdmin} kept (Admin)`);
+      summary.periodFlagsKeptAdmin = flags.keptAdmin;
+      summary.periodFlagsSkipped = flags.skipped;
+      summary.periodMismatch = flags.mismatch ?? "";
     } catch (flagErr) {
       summary.periodFlagsError = flagErr?.message || String(flagErr);
       console.warn("⚠️  Semester flags from SIA failed (continuing sync):", summary.periodFlagsError);
     }
 
-    // Batch upsert student CPL scores from same SIA payload
-    const cplResult = await updateStudentCplScoresBatch(stamped);
-    summary.cplFetched = cplResult.fetched;
-    summary.cplCreated = cplResult.created;
-    summary.cplUpdated = cplResult.updated;
-    summary.cplSkippedNoStudent = cplResult.skippedNoStudent;
-    summary.cplSkippedNameMismatch = cplResult.skippedNameMismatch;
-    summary.cplSkippedUnknownCode = cplResult.skippedUnknownCode;
-    summary.cplUnmatchedCodes = cplResult.unmatchedCodes;
-    summary.cplSkippedProtected = cplResult.skippedProtected;
-    summary.cplUnchanged = cplResult.unchanged;
-    summary.cplSkippedMissingEnrollmentYear = cplResult.skippedMissingEnrollmentYear;
-    summary.cplSkippedNoCurriculum = cplResult.skippedNoCurriculum;
-    summary.cplSkippedAmbiguousCurriculum = cplResult.skippedAmbiguousCurriculum;
-    summary.cplSkippedMissingDescription = cplResult.skippedMissingDescription;
-    summary.cplSkippedDescriptionMismatch = cplResult.skippedDescriptionMismatch;
-    summary.cplSkippedNoActiveVersion = cplResult.skippedNoActiveVersion;
-    summary.cplSkippedAmbiguousActiveVersion = cplResult.skippedAmbiguousActiveVersion;
-    summary.cplSkippedMultipleExistingVersions = cplResult.skippedMultipleExistingVersions;
-    summary.cplSkippedInvalidScore = cplResult.skippedInvalidScore;
-    summary.cplSkippedInvalidTimestamp = cplResult.skippedInvalidTimestamp;
-    summary.cplSkippedStaleData = cplResult.skippedStaleData;
-    summary.cplSkippedTimestampConflict = cplResult.skippedTimestampConflict;
-    if (cplResult.fetched > 0) {
-      console.log(
-        `📊 CPL scores: fetched=${cplResult.fetched}, created=${cplResult.created}, updated=${cplResult.updated}, unchanged=${cplResult.unchanged}, noStudent=${cplResult.skippedNoStudent}, noCurriculum=${cplResult.skippedNoCurriculum}, unmatchedCode=${cplResult.unmatchedCodes}, descriptionMismatch=${cplResult.skippedDescriptionMismatch}, protected=${cplResult.skippedProtected}`
-      );
+    // 4: CPL scores.
+    const cplResult = await updateStudentCplScoresBatch(records);
+    for (const [key, value] of Object.entries(cplResult)) {
+      const field = `cpl${key[0].toUpperCase()}${key.slice(1)}`;
+      if (field in summary) summary[field] = value;
     }
 
-    // Cleanup obsolete records (non-blocking — sync continues even if Redis fails)
     try {
-      const cleanupResult = await cleanupObsoleteStudents(stamped.map((s) => s.nim));
+      const cleanupResult = await cleanupObsoleteStudents(records.map((r) => r.nim));
       summary.cleaned = cleanupResult.cleaned;
-      if (cleanupResult.cleaned > 0) {
-        console.log(`🧹 Cleaned: ${cleanupResult.cleaned} obsolete records`);
-      }
     } catch (cleanupErr) {
       console.warn("⚠️  Redis cleanup failed (continuing sync):", cleanupErr.message);
     }
 
-    console.log(`✅ SIA sync completed in ${Date.now() - startedAt.getTime()}ms`);
+    console.log(
+      `✅ SIA sync: ${summary.fetched} mahasiswa, ${summary.notFound} tidak ditemukan, ${summary.statusChanged} status berubah, ` +
+      `${summary.gpaChanged} IPK berubah, penanda semester ${summary.periodFlagsSkipped ? `dilewati (${summary.periodMismatch})` : `${summary.periodFlagsCreated + summary.periodFlagsUpdated} ditulis`}`,
+    );
   } catch (err) {
     summary.error = err?.message || String(err);
     console.error("❌ SIA sync failed:", err.message);
@@ -155,147 +151,74 @@ export async function runSiaSync({ siaConfigured = isSiaConfigured() } = {}) {
   return summary;
 }
 
-/**
- * Batch update student academic fields in database (optimized version)
- * Uses single query with updateMany instead of N+1 queries
- */
-const parseGpa = (value) => {
-  if (value === null || value === undefined || value === "") return null;
-  const parsed = Number(value);
-  if (Number.isNaN(parsed)) return null;
-  return Math.round(parsed * 100) / 100;
-};
-
-async function updateStudentAcademicBatch(stamped) {
-  const academicYear = await resolveOperationalAcademicYear();
-  if (!academicYear) {
-    throw new Error(
-      "Tidak ada periode akademik yang mencakup waktu sinkronisasi SIA. Snapshot periode dibatalkan.",
-    );
+/** The fields of a record that are written to `students` (null = not sent, left alone). */
+function academicData(record) {
+  const data = {};
+  for (const key of ["sksCompleted", "currentSemester", "enrollmentYear", "gpa"]) {
+    if (record[key] !== null) data[key] = record[key];
   }
-  // Prepare updates data
-  const updates = stamped
-    .map((entry) => {
-      return {
-      nim: String(entry.data?.nim ?? "").trim() || entry.nim,
-      sks: Number(entry.data?.sksCompleted),
-      mandatoryCoursesCompleted: Boolean(entry.data?.mandatoryCoursesCompleted),
-      mkwuCompleted: Boolean(entry.data?.mkwuCompleted),
-      internshipCompleted: Boolean(entry.data?.internshipCompleted),
-      kknCompleted: Boolean(entry.data?.kknCompleted),
-      researchMethodCompleted: Boolean(entry.data?.researchMethodCompleted),
-      currentSemester:
-        entry.data?.currentSemester === null || entry.data?.currentSemester === undefined
-          ? null
-          : Number(entry.data.currentSemester),
-      gpa: parseGpa(entry.data?.gpa),
-    };
-    })
-    .filter((e) => e.nim && !Number.isNaN(e.sks));
-
-  if (updates.length === 0) {
-    return { updated: 0 };
+  for (const key of ["mandatoryCoursesCompleted", "mkwuCompleted", "internshipCompleted", "kknCompleted", "researchMethodCompleted"]) {
+    if (record[key] !== null) data[key] = record[key];
   }
-
-  let batchResult = null;
-  try {
-    // Get all matching users in one query
-    const nims = updates.map((u) => u.nim);
-    const users = await prisma.user.findMany({
-      where: { identityNumber: { in: nims } },
-      select: { id: true, identityNumber: true },
-    });
-
-    // Create NIM -> userId map
-    const nimToUserId = new Map(users.map((u) => [u.identityNumber, u.id]));
-
-    // Batch update with transaction
-    const matchedUpdates = updates.filter((u) => nimToUserId.has(u.nim));
-    const updatePromises = matchedUpdates
-      .map((u) =>
-        prisma.student.updateMany({
-          where: { id: nimToUserId.get(u.nim) },
-          data: {
-            sksCompleted: u.sks,
-            mandatoryCoursesCompleted: u.mandatoryCoursesCompleted,
-            mkwuCompleted: u.mkwuCompleted,
-            internshipCompleted: u.internshipCompleted,
-            kknCompleted: u.kknCompleted,
-            researchMethodCompleted: u.researchMethodCompleted,
-            currentSemester: Number.isNaN(u.currentSemester) ? null : u.currentSemester,
-          },
-        })
-      );
-
-    const transactionOperations = [...updatePromises];
-
-    const results = await prisma.$transaction(transactionOperations);
-    const totalUpdated = results.reduce((sum, r) => sum + r.count, 0);
-    batchResult = { updated: totalUpdated };
-  } catch (err) {
-    console.error("❌ Failed to batch update student academic fields:", err.message);
-    // Fallback to individual updates if batch fails
-    return await updateStudentAcademicIndividual(updates);
-  }
-
-  // Moving theses to the research phase is a separate step after the sync.
-  return batchResult;
+  return data;
 }
 
 /**
- * Fallback: Individual updates if batch update fails
+ * Academic data, GPA and status of every student SIA lists. GPA and status have no manual mark in
+ * NeoCentral, so SIA's value wins (K45). Each student is written apart: a failure is counted and
+ * the next student goes on.
  */
-async function updateStudentAcademicIndividual(updates) {
-  let updated = 0;
-  for (const {
-    nim,
-    sks,
-    mandatoryCoursesCompleted,
-    mkwuCompleted,
-    internshipCompleted,
-    kknCompleted,
-    researchMethodCompleted,
-    currentSemester,
-    gpa,
-  } of updates) {
+export async function applyAcademicRecords(records, userOf, { client = prisma } = {}) {
+  const result = { updated: 0, gpaChanged: 0, statusChanged: 0, failed: 0 };
+  for (const record of records) {
+    const user = userOf.get(record.nim);
+    if (!user) continue;
     try {
-      const user = await prisma.user.findUnique({
-        where: { identityNumber: nim },
-        select: { id: true },
-      });
-      if (!user) continue;
-
-      await prisma.student.update({
-        where: { id: user.id },
-        data: {
-          sksCompleted: sks,
-          mandatoryCoursesCompleted,
-          mkwuCompleted,
-          internshipCompleted,
-          kknCompleted,
-          researchMethodCompleted,
-          currentSemester: Number.isNaN(currentSemester) ? null : currentSemester,
-          gpa,
-        },
-      });
-      updated++;
+      const data = academicData(record);
+      if (Object.keys(data).length > 0) {
+        await client.student.update({ where: { id: user.id }, data });
+        result.updated += 1;
+        if (data.gpa !== undefined && Number(user.student?.gpa ?? NaN) !== data.gpa) result.gpaChanged += 1;
+      }
+      if (record.studentStatus && record.studentStatus !== user.student?.status) {
+        const change = await client.$transaction((tx) => applyStudentStatusChange(tx, user.id, record.studentStatus, { source: "sia" }));
+        if (change.changed) {
+          result.statusChanged += 1;
+          await announceStudentStatusChange(change);
+        }
+      }
     } catch (err) {
-      console.warn(`⚠️  Failed to update student academic fields for NIM ${nim}:`, err.message);
+      result.failed += 1;
+      console.warn(`⚠️  SIA sync failed for NIM ${record.nim}:`, err.message);
     }
   }
-  return { updated };
+  return result;
 }
 
 /**
- * Semester flags of the operational period from SIA (plan 10.6): taking Metode Penelitian,
- * taking Tugas Akhir. SIA is the authority for its students; other students are left alone.
+ * Semester flags from the current courses. SIA's `period` must be NeoCentral's running academic
+ * year; otherwise the flags are skipped (and counted) while the other data still went in.
  */
-async function syncPeriodFlags(capturedAt) {
-  const academicYear = await resolveOperationalAcademicYear();
-  if (!academicYear) throw new Error("Tidak ada periode akademik berjalan untuk penanda semester.");
-  const rows = await fetchSemesterEnrollments({ academicYear: academicYear.year, semester: academicYear.semester });
-  const result = await applySiaEnrollments(academicYear.id, rows, { capturedAt });
-  return { ...result, period: `${academicYear.year} ${academicYear.semester}` };
+export async function syncPeriodFlags(period, records, capturedAt) {
+  const withFlags = records.filter((r) => r.takesResearchMethod !== null || r.takesThesis !== null);
+  const year = await resolveOperationalAcademicYear();
+  const same = year && period && year.year === period.academicYear && year.semester === period.semester;
+  if (!same) {
+    return {
+      created: 0,
+      updated: 0,
+      keptAdmin: 0,
+      skipped: withFlags.length,
+      mismatch: `data SIA ${periodLabel(period)}, NeoCentral ${year ? `${year.year} ${year.semester}` : "tanpa tahun ajaran aktif"}`,
+    };
+  }
+  const rows = withFlags.map((r) => ({
+    nim: r.nim,
+    ...(r.takesResearchMethod !== null && { takesResearchMethod: r.takesResearchMethod }),
+    ...(r.takesThesis !== null && { takesThesis: r.takesThesis }),
+  }));
+  const result = await applySiaEnrollments(year.id, rows, { capturedAt });
+  return { created: result.created, updated: result.updated, keptAdmin: result.keptAdmin ?? 0, skipped: 0, mismatch: "" };
 }
 
 const normalizeName = (value) =>
@@ -350,16 +273,12 @@ const emptyCplResult = (fetched = 0) => ({
  * - Name as validation guard (must match normalized string)
  * - CPL by code (cpls.code)
  */
-async function updateStudentCplScoresBatch(stamped) {
+export async function updateStudentCplScoresBatch(records) {
   const rawRows = [];
 
-  for (const entry of stamped) {
-    const nim = entry?.nim;
-    const name = entry?.data?.name;
-    const cplScores = Array.isArray(entry?.data?.cplScores) ? entry.data.cplScores : [];
-
-    for (const scoreRow of cplScores) {
-      rawRows.push({ nim, name, row: scoreRow });
+  for (const record of records) {
+    for (const scoreRow of record.cplScores) {
+      rawRows.push({ nim: record.nim, name: record.name, row: scoreRow });
     }
   }
 
@@ -478,11 +397,9 @@ async function updateStudentCplScoresBatch(stamped) {
       continue;
     }
 
-    const incomingDescription = normalizeDescription(item.row?.description);
-    if (!incomingDescription) {
-      result.skippedMissingDescription += 1;
-      continue;
-    }
+    // The description is optional in the contract; when sent it must match (a guard against a
+    // code that means another CPL).
+    const incomingDescription = item.row?.description ? normalizeDescription(item.row.description) : null;
 
     const parsedScore = Number(item.row?.score);
     if (!Number.isFinite(parsedScore) || parsedScore < 0 || parsedScore > 100) {
@@ -521,7 +438,7 @@ async function updateStudentCplScoresBatch(stamped) {
       selectedCpl = activeVersions[0];
     }
 
-    if (normalizeDescription(selectedCpl.description) !== incomingDescription) {
+    if (incomingDescription && normalizeDescription(selectedCpl.description) !== incomingDescription) {
       result.skippedDescriptionMismatch += 1;
       continue;
     }

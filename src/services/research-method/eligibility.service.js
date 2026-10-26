@@ -1,5 +1,6 @@
 import prisma from "../../config/prisma.js";
-import { fetchSemesterEnrollments } from "../sia.client.js";
+import { fetchAcademicRecords } from "../sia.client.js";
+import { normalizeSiaResponse } from "../sia.normalize.js";
 import { BadRequestError, NotFoundError } from "../../utils/errors.js";
 import { assertSiaConfigured } from "../../helpers/sia-availability.helper.js";
 
@@ -15,8 +16,8 @@ import { assertSiaConfigured } from "../../helpers/sia-availability.helper.js";
 export const ACADEMIC_FLAG_SOURCE = Object.freeze({ SIA: "sia", DEVTOOLS: "devtools", ADMIN: "admin" });
 
 /**
- * Write the semester flags SIA reports for one period (`GET /enrollments` of the dummy-SIA
- * contract: nim, takesResearchMethod, takesThesis). SIA is the authority for the students it
+ * Write the semester flags read from SIA for one period (rows `{ nim, takesResearchMethod,
+ * takesThesis }`, set by `sia.normalize.js` from the current courses of `GET /students`). SIA is the authority for the students it
  * lists: their flags are overwritten with source `sia`, except a flag the Admin set by hand
  * (like a manual CPL score). Students SIA does not list keep theirs.
  * @returns {Promise<{ fetched: number, created: number, updated: number, unknownStudents: number, keptAdmin: number }>}
@@ -170,13 +171,20 @@ export async function setAdminPeriodFlags(studentId, academicYearId, input = {},
  * does not, the Admin's values stay but lose source `admin`, so the next sync may overwrite them.
  * @returns {Promise<{ snapshot: object|null, fromSia: boolean }>}
  */
-export async function followSiaPeriodFlags(studentId, academicYearId, { client = prisma, now = new Date(), fetchEnrollments = fetchSemesterEnrollments, env = process.env } = {}) {
+/** The flags SIA reports for a semester: its records when its `period` is that semester, else none. */
+async function siaRowsForPeriod(year) {
+  const { period, students } = normalizeSiaResponse(await fetchAcademicRecords(1));
+  if (!period || period.academicYear !== year.year || period.semester !== year.semester) return [];
+  return students;
+}
+
+export async function followSiaPeriodFlags(studentId, academicYearId, { client = prisma, now = new Date(), fetchEnrollments = siaRowsForPeriod, env = process.env } = {}) {
   // Refused with "Sinkronisasi SIA belum tersedia." while SIA_BASE_URL is empty.
   assertSiaConfigured(env);
   const { student, year } = await requireStudentAndYear(studentId, academicYearId, client);
   let rows;
   try {
-    rows = await fetchEnrollments({ academicYear: year.year, semester: year.semester });
+    rows = await fetchEnrollments(year);
   } catch {
     rows = null;
   }

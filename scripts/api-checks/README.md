@@ -9,7 +9,7 @@ Skrip di folder ini mengirim permintaan HTTP ke backend yang sedang berjalan, se
 | `p3-api.mjs` | Penetapan Pembimbing (versi, akses per peran, PDF) | sembilan seeder |
 | `p4-api.mjs` | Bimbingan dan milestone fase proposal, proposal final, template proposal | sembilan seeder |
 | `p5-api.mjs` | Penilaian Proposal (draf, urutan bebas, nilai pertama Pembimbing 2 mengunci), lulus langsung Penelitian di transaksi nilai kedua, tidak lulus tetap Proposal, kunci CPMK/rubrik/nilai minimum, Penilaian hanya koordinator, syarat mata kuliah untuk Seminar Hasil, mengulang, ekspor, Monitoring Kelas; rute presensi dan proses kelulusan sudah tidak ada | sembilan seeder |
-| `p6-api.mjs` | SIA hanya dibaca, DevTools tab Proposal, alamat lama, data mahasiswa per semester | sembilan seeder + dummy-SIA |
+| `p6-api.mjs` | SIA hanya dibaca (satu rute `GET /students`, rute lama 404), DevTools tab Proposal, alamat lama, data mahasiswa per semester | sembilan seeder + dummy-SIA |
 | `p7-api.mjs` | TA yang mengulang proposal kembali ke Penelitian lewat proposal revisi | sembilan seeder |
 | `p8-api.mjs` | Angka yang terlihat pada hari seed (katalog, antrean Kadep, susunan Penetapan, template, CPMK dan bobot, ringkasan grafik Monitoring Kelas, yang lulus sudah Penelitian), Batas Bimbingan hanya Kadep/Sekdep, template milestone proposal hanya oleh Sekdep, koordinator 403 (urutan, aktif, hapus), CPMK/rubrik ditulis Sekdep saja, Salin Template dari periode lain, nilai minimum per periode, template milestone di dua fase (proposal umum, lalu template topik setelah proposal lulus) | sembilan seeder |
 | `p9-api.mjs` | Penetapan satu tabel per semester (baris per mahasiswa, menunggu di atas, semester lampau baca saja), Pembimbing 2 ke dosen penuh sebagai Jenis di Permohonan lalu baris Penetapan, penanda per semester oleh Admin (403 untuk Sekdep/Kadep) yang dipertahankan sinkronisasi sampai Ikuti Data SIA, pesan mahasiswa tanpa istilah teknis, katalog dengan topik bimbingan (tanpa topik yang ditawarkan), nilai bagian percobaan final, batas semester hanya oleh Kadep (Sekdep 403, batas umum tetap Sekdep), Impor Keikutsertaan (templat, endpoint pratinjau sudah tidak ada, impor langsung bersumber Admin dengan nama yang tidak cocok dilewati, impor ulang idempoten, NIM tidak dikenal, baris tidak valid, Sekdep 403, tidak ditimpa sinkronisasi, log audit) | sembilan seeder |
@@ -28,6 +28,7 @@ Skrip di folder ini mengirim permintaan HTTP ke backend yang sedang berjalan, se
 | `f3-api.mjs` | Formulir TA-07 Bukti Kehadiran Seminar: PDF, dokumen resmi yang dikenali Cek Dokumen, versi baru hanya bila isinya berubah, dan kehadiran yang belum diverifikasi ditolak. |
 | `f4-api.mjs` | Grafik detail periode Yudisium: ringkasan peserta per angkatan, predikat terhitung, dan topik (lima teratas + Lainnya); hanya untuk peran yang boleh melihat periode. |
 | `g1-api.mjs` | Kalender dan Agenda Mendatang: siapa melihat event apa (Admin, audiens), isi event seminar (judul, status, lokasi, peserta berperan, tanggal benar), dan agenda maksimal 5 dari sekarang. |
+| `s1-api.mjs` | Kontrak SIA tunggal (K45) ujung ke ujung: `GET /students` dummy-SIA → Sinkronkan → SKS, penanda semester dari kode mata kuliah, IPK, status, CPL di database; perubahan di SIA (Cuti lewat aturan status mahasiswa, IPK, KRS tanpa Tugas Akhir); periode SIA berbeda (penanda dilewati, data lain tetap masuk). Mengubah lalu mengembalikan berkas data dummy-SIA | sembilan seeder + dummy-SIA (`SIA_DATA_PATH`) |
 | `lib-api.mjs` | Pembantu bersama: login per akun, panggilan JSON/multipart, pencatat PASS/FAIL | — |
 | `run-all.sh` | Menjalankan semuanya, masing-masing setelah bangun ulang dan seed | — |
 
@@ -37,14 +38,21 @@ Sembilan seeder, dalam urutan ini: `seed-master`, `seed-thesis-topics`, `seed-th
 
 1. MySQL lokal dengan `DATABASE_URL` di `app/backend/.env` menunjuk ke database lokal (`central`). `run-all.sh` menolak membangun ulang database yang bukan `localhost`.
 2. Backend berjalan: `pnpm dev` di `app/backend` (`http://localhost:3000`; port lain lewat `BASE=http://localhost:3100`). Setelah skema berubah, jalankan `npx prisma generate` dan hidupkan ulang backend.
-3. Untuk `p6-api.mjs`: dummy-SIA berjalan (`npm run dev` di `app/dummy-SIA`, port 4000), dan `SIA_BASE_URL`/`SIA_API_TOKEN` di `.env` backend menunjuk ke sana.
+3. Untuk `p6-api.mjs` dan `s1-api.mjs`: dummy-SIA berjalan (`npm run dev` di `app/dummy-SIA`, port 4000), dan `SIA_BASE_URL`/`SIA_API_TOKEN` di `.env` backend menunjuk ke sana. `s1-api.mjs` juga membutuhkan `SIA_DATA_PATH`: berkas data yang dibaca dummy-SIA itu. Skrip mengubahnya selama pemeriksaan dan mengembalikannya di akhir; sebaiknya jalankan dummy-SIA dengan salinan:
+
+   ```bash
+   cp ../dummy-SIA/data/students.json /tmp/sia-uji.json
+   (cd ../dummy-SIA && SIA_DATA_PATH=/tmp/sia-uji.json PORT=4100 API_TOKEN=uji node src/index.js) &
+   # backend uji dengan SIA_BASE_URL=http://localhost:4100 SIA_API_TOKEN=uji, lalu:
+   SIA_BASE_URL=http://localhost:4100 SIA_DATA_PATH=/tmp/sia-uji.json scripts/api-checks/run-all.sh s1
+   ```
 
 ## Menjalankan
 
 Dari `app/backend`:
 
 ```bash
-scripts/api-checks/run-all.sh            # p1 … p9, p9r, e2e, e3, e3r, e4, e5, e6, e7, n1, n2, f1, f2 — masing-masing setelah bangun ulang + seed
+scripts/api-checks/run-all.sh            # p1 … p9, p9r, e2e, e3, e3r, e4, e5, e6, e7, n1, n2, f1 … f4, g1, s1 — masing-masing setelah bangun ulang + seed
 scripts/api-checks/run-all.sh p4 p7      # hanya yang disebut
 ```
 
