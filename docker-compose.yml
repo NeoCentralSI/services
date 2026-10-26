@@ -1,17 +1,32 @@
+# Backend stack: API, MySQL, Redis, Gotenberg, phpMyAdmin.
+# Values come from .env next to this file (see .env.example).
+#
+#   docker compose up -d --build                 build and start (never changes the schema)
+#   docker compose run --rm backend db-push      apply schema.prisma
+#   docker compose run --rm backend seed         master + demo data (not for production)
+#   docker compose run --rm backend reset --yes  drop everything, push schema, seed
+#
+# Ports bind to 127.0.0.1 by default; reach them through a reverse proxy or
+# an SSH tunnel (ssh -L 8085:127.0.0.1:8085 user@server for phpMyAdmin).
+
 services:
   backend:
-    build:
-      context: .
-      target: runner
+    build: .
     image: ${BACKEND_IMAGE:-neocentral-backend}
     restart: unless-stopped
-    env_file:
-      - .env
+    env_file: .env
     environment:
-      PORT: 3000
       NODE_ENV: ${NODE_ENV:-production}
+      PORT: 3000
+      ENABLE_CRON: ${ENABLE_CRON:-true}
+      DATABASE_URL: mysql://${MYSQL_USER:-neocentral}:${MYSQL_PASSWORD:?MYSQL_PASSWORD must be set}@db:3306/${MYSQL_DATABASE:-neocentral}
+      REDIS_URL: redis://redis:6379
+      GOTENBERG_URL: http://gotenberg:3000
     ports:
-      - "127.0.0.1:${BACKEND_HOST_PORT:-3000}:3000"
+      - "${BACKEND_BIND:-127.0.0.1}:${BACKEND_PORT:-3000}:3000"
+    # Lets SIA_BASE_URL point at a service on the host, e.g. http://host.docker.internal:4000
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
     volumes:
       - uploads-data:/app/uploads
     depends_on:
@@ -20,59 +35,22 @@ services:
       redis:
         condition: service_healthy
       gotenberg:
-        condition: service_healthy
-    networks:
-      - backend-internal
-      - neocentral
-    healthcheck:
-      test: ["CMD", "curl", "-f", "http://localhost:3000/health"]
-      interval: 15s
-      timeout: 5s
-      retries: 5
-      start_period: 30s
-
-  # Explicit local tools; these never start with a normal "docker compose up".
-  # Fresh schema: docker compose --profile tools run --rm backend-tools
-  # Seed data:    docker compose --profile tools run --rm backend-tools node scripts/seed-master.js
-  backend-tools:
-    profiles: ["tools"]
-    build:
-      context: .
-      target: tools
-    image: ${BACKEND_TOOLS_IMAGE:-neocentral-backend-tools}
-    env_file:
-      - .env
-    environment:
-      PORT: 3000
-      NODE_ENV: ${NODE_ENV:-production}
-    command: ["./node_modules/.bin/prisma", "db", "push"]
-    depends_on:
-      db:
-        condition: service_healthy
-    networks:
-      - backend-internal
-      - neocentral
+        condition: service_started
 
   db:
     image: mysql:8.0
     restart: unless-stopped
-    ports:
-      - "127.0.0.1:${MYSQL_HOST_PORT:-3306}:3306"
     environment:
       MYSQL_ROOT_PASSWORD: ${MYSQL_ROOT_PASSWORD:?MYSQL_ROOT_PASSWORD must be set}
       MYSQL_DATABASE: ${MYSQL_DATABASE:-neocentral}
       MYSQL_USER: ${MYSQL_USER:-neocentral}
       MYSQL_PASSWORD: ${MYSQL_PASSWORD:?MYSQL_PASSWORD must be set}
+    ports:
+      - "127.0.0.1:${MYSQL_PORT:-3306}:3306"
     volumes:
       - db-data:/var/lib/mysql
-    networks:
-      - backend-internal
     healthcheck:
-      test:
-        [
-          "CMD-SHELL",
-          "mysqladmin ping -h localhost -u root -p\"$${MYSQL_ROOT_PASSWORD}\" --silent",
-        ]
+      test: ["CMD-SHELL", "mysqladmin ping -h localhost -u root -p\"$${MYSQL_ROOT_PASSWORD}\" --silent"]
       interval: 10s
       timeout: 5s
       retries: 10
@@ -84,8 +62,6 @@ services:
     command: ["redis-server", "--save", "60", "1", "--loglevel", "warning"]
     volumes:
       - redis-data:/data
-    networks:
-      - backend-internal
     healthcheck:
       test: ["CMD", "redis-cli", "ping"]
       interval: 10s
@@ -95,28 +71,21 @@ services:
   gotenberg:
     image: gotenberg/gotenberg:8
     restart: unless-stopped
-    command:
-      - gotenberg
-      - --api-port=3001
-      - --chromium-disable-routes=false
-      - --api-timeout=60s
-    networks:
-      - backend-internal
-    healthcheck:
-      test: ["CMD", "curl", "--fail", "http://localhost:3001/health"]
-      interval: 15s
-      timeout: 5s
-      retries: 5
-      start_period: 20s
+    command: ["gotenberg", "--api-timeout=60s"]
 
+  phpmyadmin:
+    image: phpmyadmin:5
+    restart: unless-stopped
+    environment:
+      PMA_HOST: db
+      UPLOAD_LIMIT: 64M
+    ports:
+      - "${PMA_BIND:-127.0.0.1}:${PMA_PORT:-8085}:80"
+    depends_on:
+      - db
+
+# Names kept from the previous setup so existing servers keep their data.
 volumes:
   uploads-data:
-  redis-data:
   db-data:
-
-networks:
-  backend-internal:
-    driver: bridge
-  neocentral:
-    external: true
-    name: ${SHARED_NETWORK_NAME:-neocentral}
+  redis-data:
