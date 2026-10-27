@@ -63,3 +63,7 @@ scripts/backups/
 
 # Commit currently deployed on the server (written by CI)
 .deployed-sha
+
+# Archives and database dumps
+*.zip
+sql/

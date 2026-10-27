@@ -24,7 +24,7 @@ import * as service from "../../../../services/seminar-requirement.service.js";
 const requirementOne = {
   id: "11111111-1111-4111-8111-111111111111",
   academicYearId: "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa",
-  name: "Draf Laporan",
+  name: "Laporan Tugas Akhir",
   description: "Draf final",
   displayOrder: 1,
 };

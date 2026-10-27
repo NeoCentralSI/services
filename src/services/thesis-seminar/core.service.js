@@ -242,6 +242,7 @@ export async function getSeminarDetail(seminarId) {
         name: supervisor.lecturer?.user?.fullName || "-",
         role: supervisor.role?.name || "-",
       })),
+      canViewDocuments: true,
       documents: [],
       documentTypes: [],
       examiners: (archiveCandidate.examiners || []).map((examiner) => ({
@@ -284,6 +285,7 @@ export async function getSeminarDetail(seminarId) {
     thesis: { id: seminar.thesis?.id, title: seminar.thesis?.title },
     student: { id: seminar.thesis?.student?.id || null, name: seminar.thesis?.student?.user?.fullName || "-", nim: seminar.thesis?.student?.user?.identityNumber || "-" },
     supervisors: (seminar.thesis?.thesisSupervisors || []).map((ts) => ({ lecturerId: ts.lecturerId, name: ts.lecturer?.user?.fullName || "-", role: ts.role?.name || "-" })),
+    canViewDocuments: true,
     documents: docs.map((d) => ({ requirementId: d.thesisSeminarRequirementId, status: d.status, submittedAt: d.submittedAt, verifiedAt: d.verifiedAt, notes: d.notes, verifiedBy: d.verifier?.fullName || null, fileName: d.fileName, filePath: d.filePath })),
     documentTypes: requirements.map((requirement) => ({ id: requirement.id, name: requirement.name })),
     examiners: active.map((e) => ({ id: e.id, lecturerId: e.lecturerId, lecturerName: e.lecturerName || "-", order: e.order, availabilityStatus: e.availabilityStatus })),

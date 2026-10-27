@@ -202,7 +202,7 @@ describe("Unit Test: Yudisium Student Service", () => {
 
     mockPrisma.yudisiumRequirement.findMany.mockResolvedValue([
 
-      { id: "req-1", name: "Bebas Pustaka", description: "Surat bebas pustaka" },
+      { id: "req-1", name: "Bukti Bebas Pustaka FTI UNAND", description: "Surat keterangan bebas pustaka dari Perpustakaan Fakultas Teknologi Informasi Universitas Andalas" },
 
     ]);
 
@@ -210,9 +210,9 @@ describe("Unit Test: Yudisium Student Service", () => {
 
       id: "req-1",
 
-      name: "Bebas Pustaka",
+      name: "Bukti Bebas Pustaka FTI UNAND",
 
-      description: "Surat bebas pustaka",
+      description: "Surat keterangan bebas pustaka dari Perpustakaan Fakultas Teknologi Informasi Universitas Andalas",
 
     });
 
@@ -264,7 +264,7 @@ describe("Unit Test: Yudisium Student Service", () => {
 
     mockRequirementRepo.findAll.mockResolvedValue([
 
-      { id: "req-1", name: "Bebas Pustaka", description: "Surat bebas pustaka" },
+      { id: "req-1", name: "Bukti Bebas Pustaka FTI UNAND", description: "Surat keterangan bebas pustaka dari Perpustakaan Fakultas Teknologi Informasi Universitas Andalas" },
 
     ]);
 
@@ -732,7 +732,7 @@ describe("Unit Test: Yudisium Student Service", () => {
 
         id: "req-1",
 
-        name: "Bebas Pustaka",
+        name: "Bukti Bebas Pustaka FTI UNAND",
 
         status: "approved",
 

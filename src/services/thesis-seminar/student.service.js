@@ -287,6 +287,8 @@ export async function getSeminarDetail(userId, seminarId) {
       assessmentScore: isPresenter ? e.assessmentScore : null,
       assessmentSubmittedAt: isPresenter ? e.assessmentSubmittedAt : null
     })),
+    // Documents are for the presenter and the registered audience; others see an empty state.
+    canViewDocuments: isPresenter || isAudience,
     documents: (isPresenter || isAudience)
       ? docs.map((d) => ({
           requirementId: d.thesisSeminarRequirementId,
