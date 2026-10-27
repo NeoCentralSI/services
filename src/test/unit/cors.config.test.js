@@ -16,12 +16,13 @@ function resolveCorsOrigin(options, origin) {
 }
 
 describe("cors config", () => {
-  it("allows the production frontend origin by default", async () => {
+  it("allows the frontend from FRONTEND_URL and no deployed domain by default", async () => {
     const options = createCorsOptions({
-      CORS_ALLOWED_ORIGINS: "http://localhost:5173",
+      FRONTEND_URL: "https://frontend.example.test",
     });
 
-    await expect(resolveCorsOrigin(options, "https://neocentral.dev")).resolves.toBe("https://neocentral.dev");
+    await expect(resolveCorsOrigin(options, "https://frontend.example.test")).resolves.toBe("https://frontend.example.test");
+    await expect(resolveCorsOrigin(options, "https://neocentral.dev")).resolves.toBe(false);
   });
 
   it("keeps configured origins and normalizes trailing slashes", () => {
@@ -32,7 +33,6 @@ describe("cors config", () => {
 
     expect(origins).toEqual(
       expect.arrayContaining([
-        "https://neocentral.dev",
         "https://frontend.example.test",
         "https://admin.example.test",
         "http://localhost:5173",

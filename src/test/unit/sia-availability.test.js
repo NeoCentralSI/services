@@ -2,7 +2,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 /**
  * Before the real SIA API exists, SIA_BASE_URL on
- * neocentral.dev is empty and nothing reads SIA: the scheduled sync is skipped with one log line,
+ * a deployed server is empty and nothing reads SIA: the scheduled sync is skipped with one log line,
  * and the manual sync is refused with "Sinkronisasi SIA belum tersedia.". The proposal flow keeps
  * working on the flags the Admin entered.
  */
