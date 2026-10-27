@@ -27,6 +27,9 @@ export const ENV = {
   REDIS_URL: process.env.REDIS_URL || "redis://localhost:6379",
   SKIP_REDIS: toBool(process.env.SKIP_REDIS),
 
+  // PDF converter; Docker Compose sets http://gotenberg:3000
+  GOTENBERG_URL: process.env.GOTENBERG_URL || "http://localhost:3001",
+
   // ===============================
   // 📧 SMTP / EMAIL CONFIG
   // ===============================
