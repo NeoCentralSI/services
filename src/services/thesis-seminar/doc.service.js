@@ -305,6 +305,23 @@ export async function uploadDocument(seminarId, studentId, file, requirementId) 
   return mapDocument(saved);
 }
 
+/**
+ * A student reads a seminar's documents only as its presenter or a registered audience.
+ * Lecturers and Admin are not limited here; the files under /uploads/thesis keep their own guard.
+ */
+export async function assertStudentCanViewDocuments(seminarId, studentId) {
+  const seminar = await prisma.thesisSeminar.findUnique({
+    where: { id: seminarId },
+    select: {
+      thesis: { select: { studentId: true } },
+      audiences: { where: { studentId }, select: { studentId: true }, take: 1 },
+    },
+  });
+  if (!seminar) throwError("Seminar tidak ditemukan.", 404);
+  if (seminar.thesis?.studentId === studentId || seminar.audiences.length > 0) return;
+  throwError("Dokumen seminar hanya dapat diakses peserta seminar ini.", 403);
+}
+
 export async function viewDocument(seminarId, requirementId) {
   const document = await docRepo.findSeminarDocument(seminarId, requirementId);
   if (!document) throwError("Dokumen belum diunggah.", 404);

@@ -148,6 +148,7 @@ export async function getDocumentTypes(req, res, next) {
 
 export async function getDocuments(req, res, next) {
   try {
+    if (req.user.studentId) await docService.assertStudentCanViewDocuments(req.params.id, req.user.studentId);
     const result = await docService.getDocuments(req.params.id);
     res.json({ success: true, data: result });
   } catch (error) { next(error); }
@@ -163,6 +164,7 @@ export async function uploadDocument(req, res, next) {
 
 export async function viewDocument(req, res, next) {
   try {
+    if (req.user.studentId) await docService.assertStudentCanViewDocuments(req.params.id, req.user.studentId);
     const result = await docService.viewDocument(req.params.id, req.params.requirementId);
     res.json({ success: true, data: result });
   } catch (error) { next(error); }

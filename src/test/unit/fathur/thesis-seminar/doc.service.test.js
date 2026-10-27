@@ -20,6 +20,7 @@ const { mockDocRepo, mockCoreRepo, mockPrisma, mockFs, mockAcademicYear } = vi.h
     student: { findUnique: vi.fn() },
     thesisGuidance: { count: vi.fn() },
     thesisSupervisors: { findMany: vi.fn() },
+    thesisSeminar: { findUnique: vi.fn() },
   },
   mockFs: {
     mkdir: vi.fn(),
@@ -51,6 +52,7 @@ vi.mock("../../../../services/push.service.js", () => ({
 }));
 
 import {
+  assertStudentCanViewDocuments,
   getDocuments,
   getRequirementsForOverview,
   uploadDocument,
@@ -241,5 +243,27 @@ describe("Seminar requirement document service", () => {
         userId: "admin-1",
       })
     ).rejects.toMatchObject({ statusCode: 400, message: "Catatan wajib diisi saat dokumen ditolak." });
+  });
+});
+
+describe("assertStudentCanViewDocuments", () => {
+  const seminarWith = (studentId, audienceIds = []) => ({
+    thesis: { studentId },
+    audiences: audienceIds.map((id) => ({ studentId: id })),
+  });
+
+  it("lets the presenter and a registered audience read the documents", async () => {
+    mockPrisma.thesisSeminar.findUnique.mockResolvedValueOnce(seminarWith("owner"));
+    await expect(assertStudentCanViewDocuments("sem-1", "owner")).resolves.toBeUndefined();
+    mockPrisma.thesisSeminar.findUnique.mockResolvedValueOnce(seminarWith("owner", ["audience"]));
+    await expect(assertStudentCanViewDocuments("sem-1", "audience")).resolves.toBeUndefined();
+    expect(mockPrisma.thesisSeminar.findUnique.mock.calls[1][0].select.audiences.where).toEqual({ studentId: "audience" });
+  });
+
+  it("refuses any other student with 403, and an unknown seminar with 404", async () => {
+    mockPrisma.thesisSeminar.findUnique.mockResolvedValueOnce(seminarWith("owner"));
+    await expect(assertStudentCanViewDocuments("sem-1", "other")).rejects.toMatchObject({ statusCode: 403 });
+    mockPrisma.thesisSeminar.findUnique.mockResolvedValueOnce(null);
+    await expect(assertStudentCanViewDocuments("missing", "other")).rejects.toMatchObject({ statusCode: 404 });
   });
 });
