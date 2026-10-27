@@ -12,7 +12,7 @@ import { ROLES } from "../constants/roles.js";
  * | `/general/...` (or no thesis id)  | any authenticated user (unchanged behaviour)                   |
  * | `/<thesisId>/...` (guidance, ...) | thesis owner; supervisors of the thesis (active or former);    |
  * |                                   | Ketua/Sekretaris Departemen, GKM, Admin (active role)          |
- * | `/<thesisId>/seminar/...`         | the above + seminar examiners + registered seminar audiences   |
+ * | `/<thesisId>/seminar/...`         | the above + every lecturer + registered seminar audiences      |
  * | `/<thesisId>/defence/...`         | the above + defence examiners (kept from the old guard)        |
  * | `/<thesisId>/proposal/...`        | final proposal: owner; ACTIVE supervisors; Koordinator|
  * |                                   | Metode Penelitian, Ketua/Sekretaris Departemen, Admin (active) |
@@ -71,7 +71,7 @@ export const checkThesisFileAccess = async (req, res, next) => {
   const isProposalFile = subfolder === "proposal";
 
   try {
-    const [privilegedRole, thesis] = await Promise.all([
+    const [privilegedRole, thesis, lecturer] = await Promise.all([
       prisma.userHasRole.findFirst({
         where: {
           userId,
@@ -110,9 +110,12 @@ export const checkThesisFileAccess = async (req, res, next) => {
             : {}),
         },
       }),
+      // Seminar documents are open to every lecturer (decision of 27 October 2026).
+      isSeminarFile ? prisma.lecturer.findUnique({ where: { id: userId }, select: { id: true } }) : null,
     ]);
 
     if (privilegedRole) return next();
+    if (isSeminarFile && lecturer) return next();
     if (!thesis) return forbidden(res);
 
     const isOwner = thesis.studentId === userId;

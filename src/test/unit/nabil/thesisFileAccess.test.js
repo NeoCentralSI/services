@@ -9,7 +9,7 @@ import express from "express";
 import request from "supertest";
 import http from "node:http";
 
-const data = vi.hoisted(() => ({ roles: [], theses: [] }));
+const data = vi.hoisted(() => ({ roles: [], theses: [], lecturers: [] }));
 
 vi.mock("../../../config/prisma.js", () => {
   const pick = (rows, cond) => (rows || []).filter((r) => Object.entries(cond).every(([k, v]) => r[k] === v));
@@ -21,6 +21,9 @@ vi.mock("../../../config/prisma.js", () => {
             (r) => r.userId === where.userId && r.status === where.status && where.role.name.in.includes(r.roleName),
           ) ?? null,
         ),
+      },
+      lecturer: {
+        findUnique: vi.fn(async ({ where }) => (data.lecturers.includes(where.id) ? { id: where.id } : null)),
       },
       thesis: {
         findUnique: vi.fn(async ({ where, select }) => {
@@ -65,6 +68,8 @@ app.use(
 const get = (user, path) => request(app).get(`/uploads/thesis/${path}`).set("x-user", user);
 
 beforeEach(() => {
+  // Users with a Lecturer record; "dosen-biasa" has no role and no link to T1.
+  data.lecturers = ["p1", "former", "examiner", "def-examiner", "koordinator", "dosen-biasa", "kadep", "sekdep", "gkm"];
   data.roles = [
     { userId: "kadep", roleName: "Ketua Departemen", status: "active" },
     { userId: "sekdep", roleName: "Sekretaris Departemen", status: "active" },
@@ -126,9 +131,18 @@ describe("guard /uploads/thesis", () => {
     expect((await get("other", SEMINAR)).status).toBe(403);
   });
 
+  it("setiap dosen bisa membuka berkas seminar (200), tapi bukan lampiran bimbingan atau berkas sidang", async () => {
+    expect((await get("dosen-biasa", SEMINAR)).status).toBe(200);
+    expect((await get("koordinator", SEMINAR)).status).toBe(200);
+    expect((await get("dosen-biasa", GUIDANCE)).status).toBe(403);
+    expect((await get("dosen-biasa", DEFENCE)).status).toBe(403);
+  });
+
   it("penguji sidang bisa membuka berkas sidang (perilaku lama dipertahankan)", async () => {
     expect((await get("def-examiner", DEFENCE)).status).toBe(200);
-    expect((await get("def-examiner", SEMINAR)).status).toBe(403);
+    // A defence examiner is a lecturer, so seminar files are open to them as well.
+    expect((await get("def-examiner", SEMINAR)).status).toBe(200);
+    expect((await get("def-examiner", GUIDANCE)).status).toBe(403);
   });
 
   it("folder general tetap terbuka untuk pengguna yang login; tanpa login 401", async () => {
