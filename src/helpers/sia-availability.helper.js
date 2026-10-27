@@ -2,7 +2,7 @@ import { BadRequestError } from "../utils/errors.js";
 
 /**
  * Before the real SIA API exists, SIA_BASE_URL on
- * neocentral.dev is empty, and nothing reads SIA (the scheduled sync, "Sinkronkan data SIA",
+ * a deployed server is empty, and nothing reads SIA (the scheduled sync, "Sinkronkan data SIA",
  * "Ikuti Data SIA"), so the dummy SIA never overwrites what the Admin entered by hand.
  *
  * The raw environment variable is read on purpose: `config/env.js` replaces an empty

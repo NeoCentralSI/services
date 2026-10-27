@@ -60,3 +60,6 @@ data
 # - Do NOT ignore prisma/migrations; keep migrations under version control
 # - Keep lockfiles (pnpm-lock.yaml) committed for reproducible installs
 scripts/backups/
+
+# Commit currently deployed on the server (written by CI)
+.deployed-sha
