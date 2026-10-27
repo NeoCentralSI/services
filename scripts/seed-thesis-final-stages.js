@@ -44,9 +44,22 @@ const LECTURER = Object.freeze({
 });
 const ROOM = Object.freeze({ seminar: "Ruang Seminar SI", defence: "Ruang Sidang SI" });
 
-const SEMINAR_REQUIREMENTS = ["Draf Laporan Tugas Akhir", "Lembar Persetujuan Seminar Hasil", "Kartu Kendali Bimbingan"];
-const DEFENCE_REQUIREMENTS = ["Laporan Tugas Akhir Lengkap", "Lembar Pengesahan Revisi Seminar Hasil", "Transkrip Nilai Sementara"];
-const YUDISIUM_REQUIREMENTS = ["Surat Keterangan Bebas Pustaka", "Bukti Penyerahan Laporan Tugas Akhir", "Pas Foto Berwarna", "Transkrip Nilai Akhir"];
+// Document requirements: { name, description }. Sidang asks the three of Seminar Hasil plus two.
+const SEMINAR_REQUIREMENTS = [
+  { name: "Laporan Tugas Akhir", description: "Laporan tugas akhir lengkap yang telah disetujui dosen pembimbing untuk diseminarkan" },
+  { name: "Slide Presentasi Tugas Akhir", description: "Slide presentasi yang akan digunakan pada seminar hasil" },
+  { name: "Jurnal Tugas Akhir Format TEKNOSI", description: "Artikel jurnal hasil tugas akhir sesuai templat TEKNOSI" },
+];
+const DEFENCE_REQUIREMENTS = [
+  ...SEMINAR_REQUIREMENTS,
+  { name: "Sertifikat SAPS", description: "Sertifikat Student Activity Point System (SAPS)" },
+  { name: "Sertifikat TOEFL", description: "Skor TOEFL ITP atau TOEFL Prediction dari UPT Bahasa Universitas Andalas" },
+];
+const YUDISIUM_REQUIREMENTS = [
+  { name: "Laporan Tugas Akhir (Final)", description: "Laporan final yang telah disetujui dosen pembimbing, memuat lembar pengesahan dan pernyataan anti-plagiarisme" },
+  { name: "Poster Tugas Akhir", description: "Poster ringkasan hasil tugas akhir" },
+  { name: "Bukti Bebas Pustaka FTI UNAND", description: "Surat keterangan bebas pustaka dari Perpustakaan Fakultas Teknologi Informasi Universitas Andalas" },
+];
 
 const CPLS = [
   ["CPL-01", "Mengidentifikasi, memformulasikan, dan memecahkan permasalahan kebutuhan informasi organisasi"],
@@ -159,11 +172,11 @@ async function samplePdf(relativeDir, fileName, title, lines) {
 
 // ─── Master data the stages need ───────────────────────────────────────────────────────────
 
-async function ensureEventRequirements(model, academicYearId, names) {
+async function ensureEventRequirements(model, academicYearId, requirements) {
   const existing = await prisma[model].findMany({ where: { academicYearId } });
   if (existing.length > 0) return existing;
-  for (const [index, name] of names.entries()) {
-    await prisma[model].create({ data: { academicYearId, name, displayOrder: index + 1 } });
+  for (const [index, { name, description }] of requirements.entries()) {
+    await prisma[model].create({ data: { academicYearId, name, description, displayOrder: index + 1 } });
   }
   console.log(`  ✅ Syarat dokumen ${model === "thesisSeminarRequirement" ? "seminar" : "sidang"} semester berjalan ditambahkan.`);
   return prisma[model].findMany({ where: { academicYearId }, orderBy: { displayOrder: "asc" } });
@@ -220,9 +233,9 @@ async function ensureOpenYudisium(ctx) {
   const existing = await prisma.yudisium.findFirst({ where: { name } });
   if (existing) return existing;
   const requirements = [];
-  for (const [index, requirementName] of YUDISIUM_REQUIREMENTS.entries()) {
-    requirements.push((await prisma.yudisiumRequirement.findFirst({ where: { name: requirementName } })) ??
-      (await prisma.yudisiumRequirement.create({ data: { name: requirementName, isActive: true, isPublic: true, order: index + 1 } })));
+  for (const [index, { name, description }] of YUDISIUM_REQUIREMENTS.entries()) {
+    requirements.push((await prisma.yudisiumRequirement.findFirst({ where: { name } })) ??
+      (await prisma.yudisiumRequirement.create({ data: { name, description, isActive: true, isPublic: true, order: index + 1 } })));
   }
   const close = new Date(NOW.getTime() + 14 * DAY);
   const today = wibSlot(NOW).date;

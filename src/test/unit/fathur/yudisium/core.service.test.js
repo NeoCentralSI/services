@@ -122,7 +122,7 @@ const activeYudisium = (overrides = {}) =>
 
         order: 0,
 
-        yudisiumRequirement: { id: "req-1", name: "Bebas Pustaka" },
+        yudisiumRequirement: { id: "req-1", name: "Bukti Bebas Pustaka FTI UNAND" },
 
       },
 
