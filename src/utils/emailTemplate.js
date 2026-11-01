@@ -1,5 +1,7 @@
 // Common email template styles and components
-const LOGO_URL = "https://vylagsnlpgdvlhydvswk.supabase.co/storage/v1/object/public/neocentral-logo/neocentral-logo.png";
+// Embedded as an inline attachment by config/mailer.js, so no external host is needed.
+export const LOGO_CID = "neocentral-logo";
+const LOGO_URL = `cid:${LOGO_CID}`;
 const PRIMARY_COLOR = "#F7931E"; // Orange (from frontend --primary)
 const TEXT_COLOR = "#111827"; // gray-900 (from frontend --foreground)
 const MUTED_COLOR = "#6b7280"; // gray-500 (from frontend --muted-foreground)
@@ -28,11 +30,11 @@ function getEmailWrapper(content, { appName = "Neo Central DSI", headerTitle = "
 								<tr>
 									<td style="vertical-align: middle;" width="50">
 										<!--[if mso]>
-										<table role="presentation" width="44" cellspacing="0" cellpadding="0" border="0">
+										<table role="presentation" width="52" cellspacing="0" cellpadding="0" border="0">
 											<tr>
 												<td>
 										<![endif]-->
-										<img src="${LOGO_URL}" alt="${appName}" title="${appName}" width="44" height="44" style="display: block; height: 44px; width: 44px; border: 0; outline: none; text-decoration: none;" />
+										<img src="${LOGO_URL}" alt="${appName}" title="${appName}" width="52" height="35" style="display: block; height: 35px; width: 52px; border: 0; outline: none; text-decoration: none;" />
 										<!--[if mso]>
 												</td>
 											</tr>
