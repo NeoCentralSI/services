@@ -1237,6 +1237,16 @@ export async function submitSessionSummaryService(
     throw err;
   }
 
+  // Notes are written after the session, so not before its scheduled time (same rule as the web page).
+  const sessionDate = guidance.approvedDate || guidance.requestedDate;
+  if (sessionDate && new Date(sessionDate) > new Date()) {
+    const err = new Error(
+      `Catatan sesi bimbingan baru dapat diisi setelah waktu bimbingan tiba (${formatDateTimeWib(sessionDate, { withWeekday: true })}).`,
+    );
+    err.statusCode = 400;
+    throw err;
+  }
+
   // Validate required fields
   if (!sessionSummary || sessionSummary.trim().length === 0) {
     const err = new Error("Ringkasan bimbingan wajib diisi");
