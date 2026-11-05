@@ -414,6 +414,21 @@ describe("Module 3: Guidance Session", () => {
       ).rejects.toMatchObject({ statusCode: 400 });
     });
 
+    it("rejects (400) before the scheduled session time", async () => {
+      mockRepo.getStudentByUserId.mockResolvedValue(STUDENT);
+      mockRepo.getGuidanceByIdForStudent.mockResolvedValue({
+        ...GUIDANCE_ACCEPTED,
+        approvedDate: new Date(Date.now() + 5 * 24 * 60 * 60 * 1000),
+      });
+
+      await expect(
+        submitSessionSummaryService("user-1", "guid-2", {
+          sessionSummary: "Test summary",
+        })
+      ).rejects.toMatchObject({ statusCode: 400 });
+      expect(mockRepo.submitSessionSummary).not.toHaveBeenCalled();
+    });
+
     it("rejects (400) if sessionSummary is empty", async () => {
       mockRepo.getStudentByUserId.mockResolvedValue(STUDENT);
       mockRepo.getGuidanceByIdForStudent.mockResolvedValue(GUIDANCE_ACCEPTED);
